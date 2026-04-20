@@ -1,6 +1,6 @@
 using UnityEngine;
 using System.Collections;
-using UnityEngine.SceneManagement; // シーン切り替えを使う場合
+using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
@@ -28,8 +28,6 @@ public class PlayerController : MonoBehaviour
     private Rigidbody2D rb;
     private float moveInput;
     private bool isTouchingWall;
-
-    // 入力キー管理用
     private KeyCode dashKey;
 
     void Start()
@@ -39,10 +37,9 @@ public class PlayerController : MonoBehaviour
         // プレイヤーごとにダッシュキーを割り当て
         dashKey = (playerID == 1) ? KeyCode.LeftShift : KeyCode.RightShift;
 
-        // キャラクターに「Player」タグがついているか確認（踏みつけ判定に必要）
         if (!gameObject.CompareTag("Player"))
         {
-            Debug.LogWarning(gameObject.name + " に 'Player' タグを設定してください！");
+            Debug.LogWarning(gameObject.name + " のTagを 'Player' に設定してください！");
         }
     }
 
@@ -50,7 +47,6 @@ public class PlayerController : MonoBehaviour
     {
         if (isDashing) return;
 
-        // 1Pと2Pで入力を分岐
         GetPlayerInput();
 
         // 壁検知
@@ -63,20 +59,37 @@ public class PlayerController : MonoBehaviour
     {
         if (playerID == 1)
         {
-            // 1P操作: WASD + Space
+            // --- 1P操作: キーボード (Horizontal / Jump) ---
             moveInput = Input.GetAxisRaw("Horizontal");
             if (Input.GetButtonDown("Jump")) HandleJump();
             if (Input.GetKeyDown(dashKey) && moveInput != 0) StartCoroutine(Dash());
         }
         else
         {
-            // 2P操作: ArrowKeys + UpArrow
-            moveInput = 0;
-            if (Input.GetKey(KeyCode.LeftArrow)) moveInput = -1;
-            if (Input.GetKey(KeyCode.RightArrow)) moveInput = 1;
+            // --- 2P操作: キーボード(矢印) ＋ コントローラー ---
 
-            if (Input.GetKeyDown(KeyCode.UpArrow)) HandleJump();
-            if (Input.GetKeyDown(dashKey) && moveInput != 0) StartCoroutine(Dash());
+            // スティック入力（さっき作った Horizontal2）
+            float joyInput = Input.GetAxisRaw("Horizontal2");
+
+            // キーボード入力
+            float keyInput = 0;
+            if (Input.GetKey(KeyCode.LeftArrow)) keyInput = -1;
+            if (Input.GetKey(KeyCode.RightArrow)) keyInput = 1;
+
+            // 入力を合算（どちらでも動くように）
+            moveInput = Mathf.Clamp(joyInput + keyInput, -1f, 1f);
+
+            // ジャンプ: 上矢印 または コントローラーのA/×ボタン(Joystick2Button0)
+            if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.Joystick2Button0))
+            {
+                HandleJump();
+            }
+
+            // ダッシュ: 右Shift または コントローラーのB/○ボタン(Joystick2Button1)
+            if ((Input.GetKeyDown(dashKey) || Input.GetKeyDown(KeyCode.Joystick2Button1)) && moveInput != 0)
+            {
+                StartCoroutine(Dash());
+            }
         }
     }
 
@@ -99,7 +112,6 @@ public class PlayerController : MonoBehaviour
 
     void WallJump()
     {
-        // 壁と反対方向に飛ばす
         float direction = (moveInput != 0) ? -moveInput : (transform.position.x > 0 ? -1 : 1);
         rb.linearVelocity = new Vector2(direction * wallJumpSideForce, wallJumpForce);
     }
@@ -116,21 +128,14 @@ public class PlayerController : MonoBehaviour
         isDashing = false;
     }
 
-    // --- 勝利判定（踏みつけ） ---
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (collision.gameObject.CompareTag("Player"))
         {
-            // 自分の足元が相手の頭（中心）より一定以上高い場合
             if (transform.position.y > collision.transform.position.y + 0.6f)
             {
-                Debug.Log("プレイヤー " + playerID + " の勝利！");
-
-                // 勝利した時にやりたい処理（例：少し跳ねる）
+                Debug.Log("P" + playerID + " の勝利！");
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * 0.8f);
-
-                // もし勝利シーンがあるなら呼び出す
-                // SceneManager.LoadScene("ResultScene");
             }
         }
     }
