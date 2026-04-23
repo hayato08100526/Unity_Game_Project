@@ -4,6 +4,11 @@ using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
+    // --- モード切替フラグ ---
+    [Header("モード設定")]
+    // staticを外しました。これでインスペクターに表示されます！
+    public bool isSoloMode = false;
+
     [Header("対戦設定")]
     public int playerID = 1; // 1Pなら1、2Pなら2をInspectorで設定
 
@@ -34,12 +39,19 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
 
-        // プレイヤーごとにダッシュキーを割り当て
+        // 1. プレイヤーごとにデフォルトのダッシュキーを割り当て
         dashKey = (playerID == 1) ? KeyCode.LeftShift : KeyCode.RightShift;
 
+        // 2. タグの確認
         if (!gameObject.CompareTag("Player"))
         {
             Debug.LogWarning(gameObject.name + " のTagを 'Player' に設定してください！");
+        }
+
+        // 3. ソロモード設定（念のため2Pを非表示にする処理も残しています）
+        if (isSoloMode && playerID == 2)
+        {
+            gameObject.SetActive(false);
         }
     }
 
@@ -57,39 +69,50 @@ public class PlayerController : MonoBehaviour
 
     void GetPlayerInput()
     {
+        // ソロモードの場合：1Pの入力に従う
+        if (isSoloMode)
+        {
+            Handle1PInput();
+            return;
+        }
+
+        // 対戦モードの場合：IDごとに分岐
         if (playerID == 1)
         {
-            // --- 1P操作: キーボード (Horizontal / Jump) ---
-            moveInput = Input.GetAxisRaw("Horizontal");
-            if (Input.GetButtonDown("Jump")) HandleJump();
-            if (Input.GetKeyDown(dashKey) && moveInput != 0) StartCoroutine(Dash());
+            Handle1PInput();
         }
         else
         {
-            // --- 2P操作: キーボード(矢印) ＋ コントローラー ---
+            Handle2PInput();
+        }
+    }
 
-            // スティック入力（さっき作った Horizontal2）
-            float joyInput = Input.GetAxisRaw("Horizontal2");
+    void Handle1PInput()
+    {
+        moveInput = Input.GetAxisRaw("Horizontal");
+        if (Input.GetButtonDown("Jump")) HandleJump();
 
-            // キーボード入力
-            float keyInput = 0;
-            if (Input.GetKey(KeyCode.LeftArrow)) keyInput = -1;
-            if (Input.GetKey(KeyCode.RightArrow)) keyInput = 1;
+        KeyCode currentDashKey = isSoloMode ? KeyCode.LeftShift : dashKey;
+        if (Input.GetKeyDown(currentDashKey) && moveInput != 0) StartCoroutine(Dash());
+    }
 
-            // 入力を合算（どちらでも動くように）
-            moveInput = Mathf.Clamp(joyInput + keyInput, -1f, 1f);
+    void Handle2PInput()
+    {
+        float joyInput = Input.GetAxisRaw("Horizontal2");
+        float keyInput = 0;
+        if (Input.GetKey(KeyCode.LeftArrow)) keyInput = -1;
+        if (Input.GetKey(KeyCode.RightArrow)) keyInput = 1;
 
-            // ジャンプ: 上矢印 または コントローラーのA/×ボタン(Joystick2Button0)
-            if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.Joystick2Button0))
-            {
-                HandleJump();
-            }
+        moveInput = Mathf.Clamp(joyInput + keyInput, -1f, 1f);
 
-            // ダッシュ: 右Shift または コントローラーのB/○ボタン(Joystick2Button1)
-            if ((Input.GetKeyDown(dashKey) || Input.GetKeyDown(KeyCode.Joystick2Button1)) && moveInput != 0)
-            {
-                StartCoroutine(Dash());
-            }
+        if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.Joystick2Button0))
+        {
+            HandleJump();
+        }
+
+        if ((Input.GetKeyDown(dashKey) || Input.GetKeyDown(KeyCode.Joystick2Button1)) && moveInput != 0)
+        {
+            StartCoroutine(Dash());
         }
     }
 
