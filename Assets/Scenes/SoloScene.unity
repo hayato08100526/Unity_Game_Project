@@ -679,6 +679,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Player
       objectReference: {fileID: 0}
+    - target: {fileID: 8917555309130668610, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: chargeBulletPrefab
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: b0f58075e7bb1e74c87062a85b22f34e, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -755,7 +759,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8718939690870063108, guid: b1fb1acdcc24ef34eb7ee5132ec81f2b, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -0.20263445
+      value: 0.05
       objectReference: {fileID: 0}
     - target: {fileID: 8718939690870063108, guid: b1fb1acdcc24ef34eb7ee5132ec81f2b, type: 3}
       propertyPath: m_LocalPosition.y

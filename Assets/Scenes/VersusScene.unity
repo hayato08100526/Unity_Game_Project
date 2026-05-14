@@ -522,7 +522,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1332036004
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -561,6 +561,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   bulletPrefab: {fileID: 2915996726960370181, guid: b1fb1acdcc24ef34eb7ee5132ec81f2b, type: 3}
+  chargeBulletPrefab: {fileID: 0}
   firePoint: {fileID: 1881503580}
   fireRate: 0.2
 --- !u!114 &1332036006
@@ -1241,7 +1242,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 3485935141757143049, guid: 02b067840c8de7847b2c89e979e67939, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -1.26
+      value: -2.62
       objectReference: {fileID: 0}
     - target: {fileID: 3485935141757143049, guid: 02b067840c8de7847b2c89e979e67939, type: 3}
       propertyPath: m_LocalPosition.y
@@ -1298,7 +1299,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 812473570066635436, guid: d2990cc5dfe08ec4c906745b25bf9fbf, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -0.20263445
+      value: 2.24
       objectReference: {fileID: 0}
     - target: {fileID: 812473570066635436, guid: d2990cc5dfe08ec4c906745b25bf9fbf, type: 3}
       propertyPath: m_LocalPosition.y
@@ -1344,6 +1345,10 @@ PrefabInstance:
       propertyPath: target
       value: 
       objectReference: {fileID: 803180302}
+    - target: {fileID: 5281105753979592769, guid: d2990cc5dfe08ec4c906745b25bf9fbf, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1405,6 +1410,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: Player
       objectReference: {fileID: 0}
+    - target: {fileID: 8917555309130668610, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: bulletPrefab
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: f68fe5bf2335f9443ae5a06007e106ed, type: 3}
+    - target: {fileID: 8917555309130668610, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: chargeBulletPrefab
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: b0f58075e7bb1e74c87062a85b22f34e, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
