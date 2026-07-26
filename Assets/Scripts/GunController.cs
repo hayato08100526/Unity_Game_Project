@@ -1,64 +1,134 @@
 using UnityEngine;
+using TMPro;
 
 public class GunController : MonoBehaviour
 {
-    public GameObject bulletPrefab; // 弾のプレハブ
-    public GameObject chargeBulletPrefab;
-    public Transform firePoint;     // 弾が出る場所
-    public float fireRate = 0.2f;   // 連射速度（秒）
+    [Header("弾の設定")]
+    public GameObject[] bulletPrefabs;
+    private int currentBulletIndex = 0;
 
+    public Transform firePoint;
+    public float fireRate = 0.2f;
     private float nextFireTime = 0f;
-    
-    private float chargeTimer;
-    private float chargeThreshold = 1f;
+
+    [Header("UIと弾のカラー設定")]
+    // ★追加：UI全体をまとめた親オブジェクトを登録する枠
+    public GameObject weaponUIPanel;
+    public TextMeshProUGUI[] weaponTexts;
+    public Color normalColor = Color.gray;
+    public Color[] weaponColors;
+
+    void Start()
+    {
+        UpdateUI();
+
+        // ★追加：ゲーム開始時はUIを非表示（隠す）にしておく
+        if (weaponUIPanel != null)
+        {
+            weaponUIPanel.SetActive(false);
+        }
+    }
 
     void Update()
     {
-        // 1. マウスの方向を向く処理
         LookAtMouse();
 
-        if (Input.GetMouseButton(0))
+        // ★変更：マウスの中央ボタンを押した時に、UIの表示/非表示を切り替える
+        if (Input.GetMouseButtonDown(2))
         {
-            chargeTimer += Time.deltaTime;
+            if (weaponUIPanel != null)
+            {
+                // 今の状態の逆にする（表示中なら隠す、隠れていたら表示する）
+                bool isActive = weaponUIPanel.activeSelf;
+                weaponUIPanel.SetActive(!isActive);
+            }
         }
-        // 2. 左クリック（押しっぱなし対応）で発射
-        if (Input.GetMouseButtonUp(0) && Time.time > nextFireTime)
+
+        // ★追加：UIが表示されている時だけ、マウスのホイール回転で弾を切り替える
+        if (weaponUIPanel != null && weaponUIPanel.activeSelf)
+        {
+            float scroll = Input.mouseScrollDelta.y;
+            if (scroll > 0f)
+            {
+                SwitchBullet(1); // 上に回すと次の弾へ
+            }
+            else if (scroll < 0f)
+            {
+                SwitchBullet(-1); // 下に回すと前の弾へ
+            }
+        }
+
+        if (Input.GetMouseButton(0) && Time.time > nextFireTime)
         {
             Shoot();
-            nextFireTime = Time.time + fireRate; // 次に撃てるまでの時間をセット
+            nextFireTime = Time.time + fireRate;
         }
-        //Debug.Log(chargeTimer);
     }
 
     void LookAtMouse()
     {
-        // マウスのスクリーン座標をゲーム内の世界座標に変換
         Vector3 screen_point = Input.mousePosition;
-        //カメラと対象の距離
         screen_point.z = 10.0f;
-
         Vector3 mousePosition = Camera.main.ScreenToWorldPoint(screen_point);
-        
-        // プレイヤーからマウスへの方向を計算
         Vector2 direction = (Vector2)mousePosition - (Vector2)transform.position;
-
-        // その方向への角度（Rotation）を計算して適用
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
-        //Debug.Log("angle : " + angle.ToString());
         transform.rotation = Quaternion.Euler(0, 0, angle);
+    }
+
+    // ★変更：ホイールの上下に合わせて切り替える方向を指定できるようにした
+    void SwitchBullet(int direction)
+    {
+        if (bulletPrefabs.Length == 0) return;
+
+        currentBulletIndex += direction;
+
+        // 配列の範囲を超えたらループさせる
+        if (currentBulletIndex >= bulletPrefabs.Length)
+        {
+            currentBulletIndex = 0;
+        }
+        else if (currentBulletIndex < 0)
+        {
+            currentBulletIndex = bulletPrefabs.Length - 1;
+        }
+
+        UpdateUI();
     }
 
     void Shoot()
     {
-        // 弾を生成！
-        if(chargeTimer > chargeThreshold)
+        if (bulletPrefabs.Length == 0) return;
+
+        GameObject currentBullet = bulletPrefabs[currentBulletIndex];
+        GameObject firedBullet = Instantiate(currentBullet, firePoint.position, firePoint.rotation);
+
+        // ★変更：弾の親オブジェクトだけでなく、子オブジェクトの画像もすべて探して色を変える
+        SpriteRenderer[] renderers = firedBullet.GetComponentsInChildren<SpriteRenderer>();
+        foreach (SpriteRenderer sr in renderers)
         {
-            Instantiate(chargeBulletPrefab, firePoint.position, firePoint.rotation);
+            if (weaponColors.Length > currentBulletIndex)
+            {
+                sr.color = weaponColors[currentBulletIndex];
+            }
         }
-        else
+    }
+
+    void UpdateUI()
+    {
+        for (int i = 0; i < weaponTexts.Length; i++)
         {
-            Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
+            if (weaponTexts[i] != null)
+            {
+                weaponTexts[i].color = normalColor;
+            }
         }
-        chargeTimer = 0;
+
+        if (weaponTexts.Length > currentBulletIndex && weaponTexts[currentBulletIndex] != null)
+        {
+            if (weaponColors.Length > currentBulletIndex)
+            {
+                weaponTexts[currentBulletIndex].color = weaponColors[currentBulletIndex];
+            }
+        }
     }
 }
