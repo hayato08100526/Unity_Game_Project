@@ -7,9 +7,9 @@ public class PlayerController : MonoBehaviour
     // --- モード切替フラグ ---
     [Header("モード設定")]
     // staticを外しました。これでインスペクターに表示されます！
+    [Header("対戦設定")]
     public bool isSoloMode = false;
 
-    [Header("対戦設定")]
     public int playerID = 1; // 1Pなら1、2Pなら2をInspectorで設定
 
     [Header("基本移動")]
