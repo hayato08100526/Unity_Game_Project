@@ -1,7 +1,7 @@
 using UnityEngine;
-using TMPro;
+using Unity.Netcode;
 
-public class GunController : MonoBehaviour
+public class GunController : NetworkBehaviour
 {
     [Header("弾の設定")]
     public GameObject[] bulletPrefabs;   // WeaponWheelのSlotsと同じ順番にする
@@ -16,11 +16,14 @@ public class GunController : MonoBehaviour
     [Header("参照")]
     public WeaponWheel wheel;            // Inspectorでドラッグ
 
-    // WeaponWheelが持っている番号をそのまま使う
     int Index => wheel != null ? wheel.CurrentIndex : 0;
+    bool IsOnline => IsSpawned;
 
     void Update()
     {
+        // オンラインで他人のプレイヤーなら何もしない(向きはNetworkTransformが同期する)
+        if (IsOnline && !IsOwner) return;
+
         LookAtMouse();
 
         // ホイールが開いている間は撃たない
@@ -35,6 +38,8 @@ public class GunController : MonoBehaviour
 
     void LookAtMouse()
     {
+        if (Camera.main == null) return;
+
         Vector3 screen_point = Input.mousePosition;
         screen_point.z = 10.0f;
         Vector3 mousePosition = Camera.main.ScreenToWorldPoint(screen_point);
@@ -45,10 +50,28 @@ public class GunController : MonoBehaviour
 
     void Shoot()
     {
-        if (bulletPrefabs.Length == 0) return;
+        if (bulletPrefabs.Length == 0 || firePoint == null) return;
 
         int i = Mathf.Clamp(Index, 0, bulletPrefabs.Length - 1);
-        GameObject fired = Instantiate(bulletPrefabs[i], firePoint.position, firePoint.rotation);
+
+        // 自分の画面にはすぐ出す
+        SpawnBullet(i, firePoint.position, firePoint.rotation);
+
+        // オンライン時は他の全員の画面にも同じ弾を出してもらう
+        if (IsOnline) ShootRpc(i, firePoint.position, firePoint.rotation);
+    }
+
+    [Rpc(SendTo.NotMe)]
+    void ShootRpc(int index, Vector3 position, Quaternion rotation)
+    {
+        SpawnBullet(index, position, rotation);
+    }
+
+    void SpawnBullet(int i, Vector3 position, Quaternion rotation)
+    {
+        if (i < 0 || i >= bulletPrefabs.Length) return;
+
+        GameObject fired = Instantiate(bulletPrefabs[i], position, rotation);
 
         if (weaponColors.Length > i)
             foreach (SpriteRenderer sr in fired.GetComponentsInChildren<SpriteRenderer>())

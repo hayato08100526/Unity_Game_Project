@@ -1,8 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
+using Unity.Netcode;
 using TMPro;
 
-public class WeaponWheel : MonoBehaviour
+public class WeaponWheel : NetworkBehaviour
 {
     [System.Serializable]
     public class Slot
@@ -30,10 +31,21 @@ public class WeaponWheel : MonoBehaviour
     [SerializeField] float slowScale = 0.2f;
     [SerializeField] float peekTime = 1.2f;
 
+    // オンライン用:今の武器番号(持ち主が書き込み、全員に同期)
+    private readonly NetworkVariable<int> netIndex = new NetworkVariable<int>(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
     Vector2 dir;
     int current = 0;
     int selected = -1;
     float peekUntil = 0f;
+    bool slowApplied = false;
+    float nextUISearchTime = 0f;
+
+    bool IsOnline => IsSpawned;
+    bool UseSlowMotion => slowMotion && !IsOnline; // オンラインでは時間を遅くしない
 
     public int CurrentIndex { get { return current; } }
 
@@ -52,7 +64,42 @@ public class WeaponWheel : MonoBehaviour
     {
         Arrange();
         if (wheelPanel != null) wheelPanel.SetActive(false);
-        Equip(0);
+        if (!IsOnline) Equip(0); // オンライン時はOnNetworkSpawnで設定済み
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        netIndex.OnValueChanged += OnNetIndexChanged;
+        if (IsOwner) Equip(0);
+        else Equip(netIndex.Value);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        netIndex.OnValueChanged -= OnNetIndexChanged;
+    }
+
+    // 相手が武器を持ち替えたら、自分の画面でも持ち替える
+    void OnNetIndexChanged(int previous, int value)
+    {
+        if (!IsOwner) Equip(value);
+    }
+
+    // シーンからホイールUIを探して接続する(オンライン時、ゲームシーンに入ると見つかる)
+    void TryBindUI()
+    {
+        var ui = FindAnyObjectByType<WeaponWheelUI>(FindObjectsInactive.Include);
+        if (ui == null) return;
+
+        wheelPanel = ui.wheelPanel;
+        hubName = ui.hubName;
+        hubIndex = ui.hubIndex;
+        for (int i = 0; i < slots.Length && i < ui.segments.Length; i++)
+            slots[i].segment = ui.segments[i];
+
+        Arrange();
+        if (wheelPanel != null) wheelPanel.SetActive(false);
+        Refresh();
     }
 
     void Arrange()
@@ -74,7 +121,6 @@ public class WeaponWheel : MonoBehaviour
             seg.fillClockwise = true;
             seg.fillAmount = fill;
 
-
             RectTransform rt = seg.rectTransform;
             float z = halfDeg - slots[i].angle;
             while (z <= -180f) z += 360f;
@@ -82,8 +128,19 @@ public class WeaponWheel : MonoBehaviour
             rt.localRotation = Quaternion.Euler(0f, 0f, z);
         }
     }
-        void Update()
+
+    void Update()
     {
+        // オンラインで他人のプレイヤーなら操作しない
+        if (IsOnline && !IsOwner) return;
+
+        // UI未接続なら0.5秒ごとに探す
+        if (wheelPanel == null && Time.unscaledTime >= nextUISearchTime)
+        {
+            nextUISearchTime = Time.unscaledTime + 0.5f;
+            TryBindUI();
+        }
+
         if (Input.GetMouseButtonDown(2))
         {
             Open();
@@ -131,7 +188,11 @@ public class WeaponWheel : MonoBehaviour
         selected = -1;
         peekUntil = 0f;
         if (wheelPanel != null) wheelPanel.SetActive(true);
-        if (slowMotion) Time.timeScale = slowScale;
+        if (UseSlowMotion)
+        {
+            Time.timeScale = slowScale;
+            slowApplied = true;
+        }
         Refresh();
     }
 
@@ -198,7 +259,7 @@ public class WeaponWheel : MonoBehaviour
     void Close()
     {
         peekUntil = 0f;
-        if (slowMotion) Time.timeScale = 1f;
+        RestoreTimeScale();
         if (wheelPanel != null) wheelPanel.SetActive(false);
         if (selected >= 0) Equip(selected);
         selected = -1;
@@ -212,13 +273,28 @@ public class WeaponWheel : MonoBehaviour
         {
             if (slots[i].weapon != null) slots[i].weapon.SetActive(i == index);
         }
+
+        // オンライン時は武器番号を全員に同期
+        if (IsOnline && IsOwner) netIndex.Value = index;
+    }
+
+    void RestoreTimeScale()
+    {
+        if (slowApplied)
+        {
+            Time.timeScale = 1f;
+            slowApplied = false;
+        }
+    }
+
+    public override void OnDestroy()
+    {
+        RestoreTimeScale();
+        base.OnDestroy();
     }
 
     void OnDisable()
     {
-        if (slowMotion) Time.timeScale = 1f;
+        RestoreTimeScale();
     }
 }
-
-
-

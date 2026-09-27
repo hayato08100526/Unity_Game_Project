@@ -1,7 +1,6 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.Events;
+using Unity.Netcode;
 using ThomasDev.HealthDamageSystem;
 
 namespace ThomasDev.HealthSystem
@@ -10,42 +9,73 @@ namespace ThomasDev.HealthSystem
     public class HealthBarUI : MonoBehaviour
     {
         [SerializeField] private Image image;
+
+        [Tooltip("ソロ用：HPを表示する対象。オンライン時は自動で自分のプレイヤーに切り替わります")]
         [SerializeField] private GameObject gameobject;
 
         private Health health;
 
-        private void Awake()
-        {
-            gameobject.TryGetComponent<Health>(out health);
-        }
-
         private void Start()
         {
-            // イベントの登録
+            // ソロプレイ時はInspectorで指定したオブジェクトを使う
+            if (!IsOnline() && gameobject != null)
+            {
+                Bind(gameobject);
+            }
+        }
+
+        private void Update()
+        {
+            // 既に接続済みなら何もしない
+            if (health != null) return;
+
+            // オンライン時は、自分のプレイヤーがスポーンするまで毎フレーム待つ
+            if (IsOnline())
+            {
+                var playerObject = NetworkManager.Singleton.LocalClient?.PlayerObject;
+                if (playerObject != null)
+                {
+                    Bind(playerObject.gameObject);
+                }
+            }
+        }
+
+        private static bool IsOnline()
+        {
+            return NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening;
+        }
+
+        private void Bind(GameObject target)
+        {
+            health = target.GetComponentInChildren<Health>();
+
+            if (health == null)
+            {
+                Debug.LogWarning($"[HealthBarUI] {target.name} にHealthコンポーネントが見つかりません。");
+                enabled = false; // 警告を出し続けないよう停止
+                return;
+            }
+
             health.OnDamaged.AddListener(OnHealthChanged);
             health.OnHealed.AddListener(OnHealthChanged);
 
-            // 【追加】ゲーム開始時にも現在のHPをバーに反映させる
-            // health から現在のHPと最大HPを取得して一度UIを更新しておくと親切です
-            // (もしhealth側にCurrentHealthやMaxHealthというプロパティがあれば、ここで呼び出せます)
+            image.fillAmount = 1f; // 開始時は満タン表示
+            Debug.Log($"[HealthBarUI] {target.name} のHPに接続しました。");
+        }
+
+        private void OnDestroy()
+        {
+            if (health != null)
+            {
+                health.OnDamaged.RemoveListener(OnHealthChanged);
+                health.OnHealed.RemoveListener(OnHealthChanged);
+            }
         }
 
         private void OnHealthChanged(float healthCurr, float healthMax)
         {
-            Debug.Log($"現在HP: {healthCurr} / 最大HP: {healthMax}");
-
-            // 割り算の分母が0になるとエラー（ゼロ除算）になるのを防ぐ安全装置
-            if (healthMax > 0)
-            {
-                // 「現在HP / 最大HP」にすることで、0.0 〜 1.0 の正確な割合になります
-                image.fillAmount = healthCurr / healthMax;
-            }
-            else
-            {
-                image.fillAmount = 0f;
-            }
-
-            Debug.Log($"バーの割合: {image.fillAmount}");
+            image.fillAmount = healthMax > 0 ? healthCurr / healthMax : 0f;
+            Debug.Log($"現在HP: {healthCurr} / 最大HP: {healthMax}（バー: {image.fillAmount}）");
         }
     }
 }

@@ -20,4 +20,11 @@ public class TitleManager : MonoBehaviour
         GameMode = "Versus"; // モードを記憶
         SceneManager.LoadScene("VersusScene"); // 対戦用シーンへ
     }
+
+    // オンライン対戦用ボタンから呼ぶ
+    public void StartOnlinePlayer()
+    {
+        GameMode = "Online"; // モードを記憶
+        SceneManager.LoadScene("OnlineLobbyScene"); // オンラインロビーへ
+    }
 }

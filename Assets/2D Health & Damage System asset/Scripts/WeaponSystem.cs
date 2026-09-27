@@ -1,92 +1,208 @@
 using UnityEngine;
 using UnityEngine.UI;
-// image_4.png のような武器切り替えシステムを管理するスクリプト
-public class WeaponSystem : MonoBehaviour
+using Unity.Netcode;
+
+// 武器の照準・切り替え・発射を管理するスクリプト(ソロ・オンライン両対応)
+// Gun_Normal(銃)に付ける
+public class WeaponSystem : NetworkBehaviour
 {
     [Header("武器（弾丸）設定")]
-    // 4つの異なる弾丸プレハブをここに登録します
     public GameObject[] bulletPrefabs;
-    // 弾丸が生成される位置
     public Transform firePoint;
+
+    [Header("照準設定")]
+    [Tooltip("マウスの方向へ銃を向ける")]
+    public bool aimAtMouse = true;
+    [Tooltip("体(Player)をマウスのある側へ向ける")]
+    public bool faceBodyToMouse = true;
+    [Tooltip("体の向きが逆になる場合はチェック")]
+    public bool invertBodyFacing = false;
+    [Tooltip("相手の銃の向きをなめらかにする速さ")]
+    public float remoteAimSmoothing = 20f;
+
     [Header("UI設定")]
-    // 4つの武器UIスロット（image_4.pngのパネル全体）
     public GameObject[] weaponSlots;
-    // 各スロットが選択されたときに強調表示するための外枠（Image）
     public Image[] slotHighlightBorders;
+
     [Header("設定値")]
-    // 初期選択武器のインデックス (0 = Bullet, 1 = Charge, 2 = Bound, 3 = Track)
     public int startWeaponIndex = 0;
-    // 現在選択中の武器のインデックス
+
     private int currentWeaponIndex = 0;
+    private float currentAimAngle = 0f;   // 狙っている角度(ワールド基準)
+    private float displayedAimAngle = 0f; // 相手の銃の表示用角度
+    private Transform body;
+
+    // 狙っている角度(持ち主が書き込み、全員に同期)
+    private readonly NetworkVariable<float> netAimAngle = new NetworkVariable<float>(
+        0f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    private bool IsOnline => IsSpawned;
+
+    void Awake()
+    {
+        var pc = GetComponentInParent<PlayerController>();
+        body = pc != null ? pc.transform : transform.root;
+    }
+
     void Start()
     {
-        // 初期武器をセットアップ
         currentWeaponIndex = startWeaponIndex;
         UpdateWeaponUI();
     }
+
     void Update()
     {
-        // マウスホイールの回転を検知して武器を切り替える
-        float scroll = Input.mouseScrollDelta.y;
-        if (scroll > 0f)
+        // オンラインで他人のプレイヤー:同期された角度に銃を向けるだけ
+        if (IsOnline && !IsOwner)
         {
-            SwitchToNextWeapon();
-        }
-        else if (scroll < 0f)
-        {
-            SwitchToPreviousWeapon();
-        }
-        // 発射処理（例：左クリック）
-        if (Input.GetMouseButtonDown(0))
-        {
-            ShootCurrentWeapon();
-        }
-    }
-    // 次の武器へ切り替える関数
-    void SwitchToNextWeapon()
-    {
-        // インデックスを増やし、配列のサイズを超えたら0に戻す（ループさせる）
-        currentWeaponIndex = (currentWeaponIndex + 1) % bulletPrefabs.Length;
-        UpdateWeaponUI();
-    }
-    // 前の武器へ切り替える関数
-    void SwitchToPreviousWeapon()
-    {
-        // インデックスを減らし、0未満になったら配列の末尾に戻す（ループさせる）
-        currentWeaponIndex = (currentWeaponIndex - 1 + bulletPrefabs.Length) % bulletPrefabs.Length;
-        UpdateWeaponUI();
-    }
-    // UIの強調表示を更新する関数
-    void UpdateWeaponUI()
-    {
-        // Slot Highlight Borders が未設定(空)の場合は何もしない
-        // ここでリターンしないと、配列サイズが0や武器数と合っていない時に範囲外エラーになる
-        if (slotHighlightBorders == null || slotHighlightBorders.Length == 0)
-        {
+            displayedAimAngle = Mathf.LerpAngle(displayedAimAngle, netAimAngle.Value,
+                                                remoteAimSmoothing * Time.deltaTime);
+            ApplyAim(displayedAimAngle);
             return;
         }
 
-        // 全てのスロットのハイライトを一旦オフに
+        if (aimAtMouse) AimAtMouse();
+
+        float scroll = Input.mouseScrollDelta.y;
+        if (scroll > 0f) SwitchToNextWeapon();
+        else if (scroll < 0f) SwitchToPreviousWeapon();
+
+        if (Input.GetMouseButtonDown(0)) ShootCurrentWeapon();
+    }
+
+    // ===== 照準 =====
+
+    void AimAtMouse()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        Vector3 screenPos = Input.mousePosition;
+        screenPos.z = Mathf.Abs(cam.transform.position.z - transform.position.z);
+        Vector3 mouseWorld = cam.ScreenToWorldPoint(screenPos);
+
+        // 体の中心からマウスへの方向(銃の根元から測るとカーソルが近いときにブレるため)
+        Vector2 dir = (Vector2)(mouseWorld - body.position);
+        if (dir.sqrMagnitude < 0.0001f) return;
+
+        if (faceBodyToMouse) FaceBody(dir.x);
+
+        currentAimAngle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        if (IsOnline) netAimAngle.Value = currentAimAngle;
+
+        ApplyAim(currentAimAngle);
+    }
+
+    // 体をマウスのある側へ向ける(Scale Xの符号で左右反転)
+    void FaceBody(float dirX)
+    {
+        if (Mathf.Abs(dirX) < 0.01f) return;
+
+        float sign = dirX > 0f ? 1f : -1f;
+        if (invertBodyFacing) sign = -sign;
+
+        Vector3 s = body.localScale;
+        s.x = Mathf.Abs(s.x) * sign;
+        body.localScale = s;
+    }
+
+    // ワールド基準の角度に銃を向ける(親が左右反転していても正しく向くよう補正)
+    void ApplyAim(float worldAngle)
+    {
+        float rad = worldAngle * Mathf.Deg2Rad;
+        float parentSign = (transform.parent != null && transform.parent.lossyScale.x < 0f) ? -1f : 1f;
+        float localAngle = Mathf.Atan2(Mathf.Sin(rad), Mathf.Cos(rad) * parentSign) * Mathf.Rad2Deg;
+        transform.localRotation = Quaternion.Euler(0f, 0f, localAngle);
+    }
+
+    // ===== 武器切り替え =====
+
+    void SwitchToNextWeapon()
+    {
+        if (bulletPrefabs.Length == 0) return;
+        currentWeaponIndex = (currentWeaponIndex + 1) % bulletPrefabs.Length;
+        UpdateWeaponUI();
+    }
+
+    void SwitchToPreviousWeapon()
+    {
+        if (bulletPrefabs.Length == 0) return;
+        currentWeaponIndex = (currentWeaponIndex - 1 + bulletPrefabs.Length) % bulletPrefabs.Length;
+        UpdateWeaponUI();
+    }
+
+    void UpdateWeaponUI()
+    {
+        if (IsOnline && !IsOwner) return;
+        if (slotHighlightBorders == null || slotHighlightBorders.Length == 0) return;
+
         for (int i = 0; i < slotHighlightBorders.Length; i++)
         {
             if (slotHighlightBorders[i] != null)
-            {
                 slotHighlightBorders[i].gameObject.SetActive(false);
-            }
         }
-        // 現在選択中の武器スロットのハイライトだけをオンに（配列の範囲内の時だけ）
-        if (currentWeaponIndex >= 0 && currentWeaponIndex < slotHighlightBorders.Length && slotHighlightBorders[currentWeaponIndex] != null)
+
+        if (currentWeaponIndex >= 0 && currentWeaponIndex < slotHighlightBorders.Length
+            && slotHighlightBorders[currentWeaponIndex] != null)
         {
             slotHighlightBorders[currentWeaponIndex].gameObject.SetActive(true);
         }
     }
-    // 現在選択中の武器を発射する関数
+
+    // ===== 発射 =====
+
     void ShootCurrentWeapon()
     {
-        if (bulletPrefabs[currentWeaponIndex] != null)
-        {
-            // インスペクターで登録された弾丸プレハブを生成
-            Instantiate(bulletPrefabs[currentWeaponIndex], firePoint.position, firePoint.rotation);
-        }
+        if (firePoint == null) return;
+
+        int i = currentWeaponIndex;
+        Vector3 pos = firePoint.position;
+        Quaternion rot = GetFireRotation();
+
+        // 自分の画面にはすぐ出す
+        SpawnBullet(i, pos, rot);
+
+        // オンライン時は他の全員の画面にも同じ弾を出してもらう
+        if (IsOnline) ShootRpc(i, pos, rot);
+    }
+
+    // 弾を飛ばす向き
+    Quaternion GetFireRotation()
+    {
+        // マウス照準中は、狙った角度にそのまま飛ばす
+        if (aimAtMouse) return Quaternion.Euler(0f, 0f, currentAimAngle);
+
+        // 照準なしの場合は銃の見た目の向きに合わせる
+        Quaternion rot = firePoint.rotation;
+        if (firePoint.lossyScale.x < 0f)
+            rot *= Quaternion.Euler(0f, 0f, 180f);
+        return rot;
+    }
+
+    [Rpc(SendTo.NotMe)]
+    void ShootRpc(int index, Vector3 position, Quaternion rotation)
+    {
+        SpawnBullet(index, position, rotation);
+    }
+
+    void SpawnBullet(int index, Vector3 position, Quaternion rotation)
+    {
+        if (index < 0 || index >= bulletPrefabs.Length || bulletPrefabs[index] == null) return;
+
+        GameObject fired = Instantiate(bulletPrefabs[index], position, rotation);
+        IgnoreShooter(fired);
+    }
+
+    // 撃った本人に自分の弾が当たらないようにする
+    void IgnoreShooter(GameObject bullet)
+    {
+        Collider2D[] bulletCols = bullet.GetComponentsInChildren<Collider2D>();
+        Collider2D[] shooterCols = body.GetComponentsInChildren<Collider2D>();
+
+        foreach (Collider2D b in bulletCols)
+            foreach (Collider2D s in shooterCols)
+                Physics2D.IgnoreCollision(b, s);
     }
 }

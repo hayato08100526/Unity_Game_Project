@@ -1,20 +1,22 @@
 using UnityEngine;
 using System.Collections;
-using UnityEngine.SceneManagement;
+using Unity.Netcode;
 
-public class PlayerController : MonoBehaviour
+public class PlayerController : NetworkBehaviour
 {
-    // --- モード切替フラグ ---
     [Header("モード設定")]
-    // staticを外しました。これでインスペクターに表示されます！
-    [Header("対戦設定")]
     public bool isSoloMode = false;
 
-    public int playerID = 1; // 1Pなら1、2Pなら2をInspectorで設定
+    [Header("対戦設定")]
+    public int playerID = 1; // 1Pなら1、2Pなら2をInspectorで設定(ローカル対戦用)
 
     [Header("基本移動")]
     public float moveSpeed = 8f;
     public float jumpForce = 12f;
+
+    [Header("接地判定")]
+    [Tooltip("この角度までの坂を「地面」とみなす")]
+    [Range(0f, 89f)] public float maxGroundAngle = 45f;
 
     [Header("壁蹴り設定")]
     public float wallJumpForce = 10f;
@@ -33,22 +35,37 @@ public class PlayerController : MonoBehaviour
     private Rigidbody2D rb;
     private float moveInput;
     private bool isTouchingWall;
+    private bool isGrounded;
+    private ContactFilter2D groundFilter;
     private KeyCode dashKey;
 
-    void Start()
+    // オンライン中か / このプレイヤーを操作してよいか
+    private bool IsOnline => IsSpawned;
+    private bool CanControl => !IsOnline || IsOwner;
+
+    void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
 
-        // 1. プレイヤーごとにデフォルトのダッシュキーを割り当て
+        // 足元に「上向きの面」が接しているかで接地を判定する
+        groundFilter = new ContactFilter2D();
+        groundFilter.useTriggers = false;
+        groundFilter.SetNormalAngle(90f - maxGroundAngle, 90f + maxGroundAngle);
+    }
+
+    void Start()
+    {
+        // ソロ・ローカル対戦ではNetwork Rigidbody 2DがKinematicにしてしまうので、Dynamicに戻す
+        // (オンライン時はNetwork Rigidbody 2Dが自動で正しく切り替える)
+        if (!IsOnline) rb.bodyType = RigidbodyType2D.Dynamic;
+
         dashKey = (playerID == 1) ? KeyCode.LeftShift : KeyCode.RightShift;
 
-        // 2. タグの確認
         if (!gameObject.CompareTag("Player"))
         {
             Debug.LogWarning(gameObject.name + " のTagを 'Player' に設定してください！");
         }
 
-        // 3. ソロモード設定（念のため2Pを非表示にする処理も残しています）
         if (isSoloMode && playerID == 2)
         {
             gameObject.SetActive(false);
@@ -57,34 +74,31 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        // ソロ・ローカル対戦では常に操作可能、オンラインでは自分のプレイヤーだけ
+        if (!CanControl) return;
+
         if (isDashing) return;
 
-        GetPlayerInput();
+        isGrounded = rb.IsTouching(groundFilter);
+        isTouchingWall = wallCheck != null &&
+                         Physics2D.OverlapCircle(wallCheck.position, 0.2f, wallLayer);
 
-        // 壁検知
-        isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, 0.2f, wallLayer);
+        GetPlayerInput();
 
         UpdateState();
     }
 
     void GetPlayerInput()
     {
-        // ソロモードの場合：1Pの入力に従う
-        if (isSoloMode)
+        // ソロとオンラインは全員1Pの操作
+        if (isSoloMode || IsOnline)
         {
             Handle1PInput();
             return;
         }
 
-        // 対戦モードの場合：IDごとに分岐
-        if (playerID == 1)
-        {
-            Handle1PInput();
-        }
-        else
-        {
-            Handle2PInput();
-        }
+        if (playerID == 1) Handle1PInput();
+        else Handle2PInput();
     }
 
     void Handle1PInput()
@@ -92,7 +106,7 @@ public class PlayerController : MonoBehaviour
         moveInput = Input.GetAxisRaw("Horizontal");
         if (Input.GetButtonDown("Jump")) HandleJump();
 
-        KeyCode currentDashKey = isSoloMode ? KeyCode.LeftShift : dashKey;
+        KeyCode currentDashKey = (isSoloMode || IsOnline) ? KeyCode.LeftShift : dashKey;
         if (Input.GetKeyDown(currentDashKey) && moveInput != 0) StartCoroutine(Dash());
     }
 
@@ -118,12 +132,15 @@ public class PlayerController : MonoBehaviour
 
     void HandleJump()
     {
-        if (isTouchingWall) WallJump();
-        else Jump();
+        // 地面にいるときは通常ジャンプ、空中で壁に触れていれば壁蹴り
+        if (isGrounded) Jump();
+        else if (isTouchingWall) WallJump();
     }
 
     void FixedUpdate()
     {
+        if (!CanControl) return;
+
         if (isDashing) return;
         rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
     }
@@ -131,6 +148,7 @@ public class PlayerController : MonoBehaviour
     void Jump()
     {
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+        isGrounded = false;
     }
 
     void WallJump()
@@ -153,11 +171,15 @@ public class PlayerController : MonoBehaviour
 
     void OnCollisionEnter2D(Collision2D collision)
     {
+        // 踏みつけのバウンドは操作している本人だけが行う
+        if (!CanControl) return;
+
         if (collision.gameObject.CompareTag("Player"))
         {
             if (transform.position.y > collision.transform.position.y + 0.6f)
             {
-                Debug.Log("P" + playerID + " の勝利！");
+                string who = IsOnline ? "Client " + OwnerClientId : "P" + playerID;
+                Debug.Log(who + " の踏みつけ成功！");
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * 0.8f);
             }
         }
@@ -166,7 +188,7 @@ public class PlayerController : MonoBehaviour
     void UpdateState()
     {
         if (isDashing) return;
-        if (Mathf.Abs(rb.linearVelocity.y) > 0.1f) currentState = PlayerState.Jump;
+        if (!isGrounded) currentState = PlayerState.Jump;
         else if (Mathf.Abs(moveInput) > 0.1f) currentState = PlayerState.Move;
         else currentState = PlayerState.Idle;
     }
