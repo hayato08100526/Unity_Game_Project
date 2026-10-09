@@ -5,11 +5,15 @@ using Unity.Netcode.Components;
 
 public class NetworkPlayerSpawn : NetworkBehaviour
 {
-    [SerializeField] private string gameSceneName = "SoloScene";
+    [Tooltip("ロビーのシーン名。これ以外のシーンを「試合中」とみなす")]
+    [SerializeField] private string lobbySceneName = "OnlineLobbyScene";
 
-    [Tooltip("プレイヤーごとのスポーン地点(Host=0番, 1人目のClient=1番...)")]
+    [Tooltip("シーンに置くスポーン地点の名前の頭。SpawnPoint_P1, SpawnPoint_P2 ... を探す")]
+    [SerializeField] private string spawnPointPrefix = "SpawnPoint_P";
+
+    [Tooltip("シーンにスポーン地点が見つからないときに使う予備の位置(Host=0番, 1人目のClient=1番...)")]
     [SerializeField]
-    private Vector2[] spawnPoints =
+    private Vector2[] fallbackSpawnPoints =
     {
         new Vector2(-5f, 2f),
         new Vector2(5f, 2f),
@@ -38,9 +42,9 @@ public class NetworkPlayerSpawn : NetworkBehaviour
 
     private void ApplyScene(Scene scene)
     {
-        bool inGame = scene.name == gameSceneName;
+        bool inGame = scene.name != lobbySceneName;
 
-        // Lobbyでは物理を止めて落下させない
+        // ロビーでは物理を止めて落下させない
         if (rb != null) rb.simulated = inGame;
 
         if (inGame) TeleportToSpawn();
@@ -49,10 +53,9 @@ public class NetworkPlayerSpawn : NetworkBehaviour
     // 自分のプレイヤーをスポーン地点へ移動(リスポーン時にも使う)
     public void TeleportToSpawn()
     {
-        if (!IsOwner || spawnPoints.Length == 0) return;
+        if (!IsOwner) return;
 
-        int index = (int)(OwnerClientId % (ulong)spawnPoints.Length);
-        Vector3 pos = spawnPoints[index];
+        Vector3 pos = GetSpawnPosition();
 
         if (rb != null) rb.linearVelocity = Vector2.zero;
 
@@ -61,5 +64,18 @@ public class NetworkPlayerSpawn : NetworkBehaviour
             netTransform.Teleport(pos, transform.rotation, transform.localScale);
         else
             transform.position = pos;
+    }
+
+    private Vector3 GetSpawnPosition()
+    {
+        // Host(OwnerClientId 0)が P1、最初の Client が P2
+        int number = (int)OwnerClientId + 1;
+
+        GameObject point = GameObject.Find(spawnPointPrefix + number);
+        if (point != null) return point.transform.position;
+
+        if (fallbackSpawnPoints.Length == 0) return Vector3.zero;
+        int index = (int)(OwnerClientId % (ulong)fallbackSpawnPoints.Length);
+        return fallbackSpawnPoints[index];
     }
 }
