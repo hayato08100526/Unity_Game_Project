@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 1692702144374673450}
   - component: {fileID: 8363647767850710342}
   - component: {fileID: 8052525090337911541}
+  - component: {fileID: 3805338700593393102}
   m_Layer: 0
   m_Name: Bullet
   m_TagString: Untagged
@@ -167,3 +168,20 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   speed: 20
   damage: 1
+  knockbackForce: 5
+  lifetime: 3
+--- !u!114 &3805338700593393102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2915996726960370181}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ddba81606fc07741b97248e89efe8f3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  displayName: NORMAL
+  heatPerShot: 8
+  fireInterval: 0.15

@@ -39,6 +39,7 @@ public class CpuController : MonoBehaviour
     private WeaponSystem weapon;
     private HealthSystem health;
     private HealthSystem targetHealth;
+    private Rigidbody2D rb;
 
     private float thinkTimer;
     private float fireTimer;
@@ -52,6 +53,7 @@ public class CpuController : MonoBehaviour
     {
         pc = GetComponent<PlayerController>();
         health = GetComponent<HealthSystem>();
+        rb = GetComponent<Rigidbody2D>();
         pc.isCpu = true;
 
         // 銃が複数付いていても、全部 CPU モードにしてマウスで撃たないようにする
@@ -101,6 +103,17 @@ public class CpuController : MonoBehaviour
             Think(me, tp);
         }
 
+        // 今の武器が熱くなっていたら、冷えている武器に持ち替える
+        if (weapon != null)
+        {
+            int cur = weapon.CurrentIndex;
+            if (weapon.IsLocked(cur) || weapon.GetHeat(cur) >= 70f)
+            {
+                int coolest = weapon.CoolestWeapon();
+                if (coolest != cur) weapon.CpuSetWeapon(coolest);
+            }
+        }
+
         // 射撃
         fireTimer -= Time.deltaTime;
         if (fireTimer <= 0f)
@@ -132,9 +145,9 @@ public class CpuController : MonoBehaviour
 
         if (offStage)
         {
-            // 場外に出たら、ステージの中央へ戻ろうとする
+            // 場外に出たら、ステージの中央へ戻ろうとする。落ち始めたら空中ジャンプ
             move = me.x < 0f ? 1f : -1f;
-            jump = true;
+            if (rb != null && rb.linearVelocity.y < 0f) jump = true;
         }
         else
         {

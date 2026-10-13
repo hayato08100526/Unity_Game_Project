@@ -5,8 +5,12 @@ using TMPro;
 public class HealthSystem : NetworkBehaviour
 {
     [Header("HP設定")]
-    public int maxHealth = 3;
+    public int maxHealth = 100;
     public int currentHealth; // 表示用(オンラインでは全員の画面で同じ値になる)
+
+    [Header("吹っ飛び")]
+    [Tooltip("HP が減るほど吹っ飛びやすくする(1 + 失ったHPの割合 × この値)")]
+    public float knockbackGrowth = 1f;
 
     [Header("UI設定")]
     public GameObject hpText;
@@ -17,7 +21,10 @@ public class HealthSystem : NetworkBehaviour
     [SerializeField] private Vector3 soloRespawnPosition = Vector3.zero;
 
     private Rigidbody2D rb;
-    private SpriteRenderer spriteRenderer;
+    private SpriteRenderer[] renderers;
+    private float invincibleUntil = -1f;
+    private bool wasInvincible;
+    private bool isDead;
 
     // オンライン用のHP:書き換えられるのはHostだけ、全員に自動同期される
     private readonly NetworkVariable<int> netHealth = new NetworkVariable<int>(
@@ -27,10 +34,12 @@ public class HealthSystem : NetworkBehaviour
 
     private bool IsOnline => IsSpawned;
 
+    public bool IsInvincible => Time.time < invincibleUntil;
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        spriteRenderer = GetComponent<SpriteRenderer>();
+        renderers = GetComponentsInChildren<SpriteRenderer>(true);
     }
 
     private void Start()
@@ -61,9 +70,29 @@ public class HealthSystem : NetworkBehaviour
             if (hpText != null) UpdateHPUI();
         }
 
+        // 無敵中は点滅させる
+        if (!isDead)
+        {
+            if (IsInvincible)
+            {
+                bool visible = Mathf.FloorToInt(Time.time * 12f) % 2 == 0;
+                SetRenderersVisible(visible);
+                wasInvincible = true;
+            }
+            else if (wasInvincible)
+            {
+                SetRenderersVisible(true);
+                wasInvincible = false;
+            }
+        }
+
         if (Input.GetKeyDown(KeyCode.R))
         {
-            if (!IsOnline) ResetPlayer();
+            // CPU 対戦中は MatchManager が R キーを使うので、ここでは何もしない
+            if (!IsOnline)
+            {
+                if (MatchManager.Instance == null) ResetPlayer();
+            }
             else if (IsOwner) RequestResetRpc();
         }
     }
@@ -73,11 +102,17 @@ public class HealthSystem : NetworkBehaviour
     {
         if (!IsOnline)
         {
-            if (currentHealth <= 0) return;
-            currentHealth -= damage;
+            if (currentHealth <= 0 || IsInvincible) return;
+
+            currentHealth = Mathf.Max(0, currentHealth - damage);
             UpdateHPUI();
-            ApplyKnockback(knockback);
-            if (currentHealth <= 0) SetDeadVisual(true);
+
+            // HP が減っているほど強く吹っ飛ぶ
+            float lost = 1f - (float)currentHealth / maxHealth;
+            ApplyKnockback(knockback * (1f + lost * knockbackGrowth));
+
+            // CPU 対戦では KO の処理は MatchManager が行う
+            if (currentHealth <= 0 && MatchManager.Instance == null) SetDeadVisual(true);
             return;
         }
 
@@ -87,6 +122,34 @@ public class HealthSystem : NetworkBehaviour
         netHealth.Value = Mathf.Max(0, netHealth.Value - damage);
         KnockbackRpc(knockback);
     }
+
+    // ダメージなしで吹き飛ばすだけ(グレネードの爆風で自分が飛ぶとき)
+    public void Push(Vector2 force)
+    {
+        if (!IsOnline) ApplyKnockback(force);
+    }
+
+    // ===== CPU 対戦(MatchManager)から呼ばれる =====
+
+    // KO されたとき:姿を消して動かなくする
+    public void KnockOut()
+    {
+        currentHealth = 0;
+        UpdateHPUI();
+        SetDeadVisual(true);
+    }
+
+    // リスポーン:HP を全回復して指定位置に出し、しばらく無敵にする
+    public void Respawn(Vector3 position, float invincibleSeconds)
+    {
+        currentHealth = maxHealth;
+        UpdateHPUI();
+        transform.position = position;
+        SetDeadVisual(false);
+        invincibleUntil = Time.time + invincibleSeconds;
+    }
+
+    // ===== ここから下は今までと同じ =====
 
     // ノックバックは位置の権限を持つ本人(Owner)のPCで実行する
     [Rpc(SendTo.Owner)]
@@ -114,12 +177,20 @@ public class HealthSystem : NetworkBehaviour
 
     private void SetDeadVisual(bool dead)
     {
-        if (spriteRenderer != null) spriteRenderer.enabled = !dead;
+        isDead = dead;
+        SetRenderersVisible(!dead);
         if (rb != null)
         {
             rb.simulated = !dead;
             if (!dead) rb.linearVelocity = Vector2.zero;
         }
+    }
+
+    private void SetRenderersVisible(bool visible)
+    {
+        if (renderers == null) return;
+        foreach (var r in renderers)
+            if (r != null) r.enabled = visible;
     }
 
     // オンライン時のリセット:Hostに依頼 → HP回復 → 本人がスポーン地点へ移動

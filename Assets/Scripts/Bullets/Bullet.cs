@@ -8,11 +8,21 @@ public class Bullet : MonoBehaviour
     [Tooltip("当たった相手を吹き飛ばす強さ")]
     public float knockbackForce = 5f;
 
+    [Tooltip("弾が消えるまでの時間(秒)。短くすると射程が短くなる")]
+    public float lifetime = 3f;
+
     private Rigidbody2D rb;
+    private Transform owner; // 撃った本人
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+    }
+
+    // WeaponSystem から呼ばれる
+    public void SetOwner(Transform shooter)
+    {
+        owner = shooter;
     }
 
     void Start()
@@ -20,16 +30,19 @@ public class Bullet : MonoBehaviour
         // 弾が生成された瞬間の「右方向」に向かって飛んでいく
         rb.linearVelocity = transform.right * speed;
 
-        // 画面外に消えた時のために3秒で自動消去
-        Destroy(gameObject, 3f);
+        // 射程(時間)が過ぎたら消える
+        Destroy(gameObject, lifetime);
     }
 
     private void OnTriggerEnter2D(Collider2D collision)
     {
-        // プレイヤーに当たった時(撃った本人にはWeaponSystem側で当たらないようにしている)
+        // プレイヤーに当たった時
         HealthSystem target = collision.GetComponentInParent<HealthSystem>();
         if (target != null)
         {
+            // 撃った本人には当たらない
+            if (owner != null && target.transform == owner) return;
+
             Vector2 dir = rb.linearVelocity.sqrMagnitude > 0.01f
                 ? rb.linearVelocity.normalized
                 : (Vector2)transform.right;

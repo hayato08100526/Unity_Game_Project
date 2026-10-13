@@ -1,42 +1,59 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.UI;
 using Unity.Netcode;
 
-// •Ší‚ÌÆ€EØ‚è‘Ö‚¦E”­Ë‚ğŠÇ—‚·‚éƒXƒNƒŠƒvƒg(ƒ\ƒEƒIƒ“ƒ‰ƒCƒ“ECPU‘Î‰)
-// Gun_Normal(e)‚É•t‚¯‚é
+// æ­¦å™¨ã®ç…§æº–ãƒ»åˆ‡ã‚Šæ›¿ãˆãƒ»ç™ºå°„ãƒ»ç†±ã‚’ç®¡ç†ã™ã‚‹ã‚¹ã‚¯ãƒªãƒ—ãƒˆ(ã‚½ãƒ­ãƒ»ã‚ªãƒ³ãƒ©ã‚¤ãƒ³ãƒ»CPUå¯¾å¿œ)
+// Gun_Normal(éŠƒ)ã«ä»˜ã‘ã‚‹
 public class WeaponSystem : NetworkBehaviour
 {
-    [Header("•Šíi’eŠÛjİ’è")]
+    [Header("æ­¦å™¨ï¼ˆå¼¾ä¸¸ï¼‰è¨­å®š")]
     public GameObject[] bulletPrefabs;
     public Transform firePoint;
 
-    [Header("Æ€İ’è")]
-    [Tooltip("ƒ}ƒEƒX‚Ì•ûŒü‚Öe‚ğŒü‚¯‚é")]
+    [Header("ç…§æº–è¨­å®š")]
+    [Tooltip("ãƒã‚¦ã‚¹ã®æ–¹å‘ã¸éŠƒã‚’å‘ã‘ã‚‹")]
     public bool aimAtMouse = true;
-    [Tooltip("‘Ì(Player)‚ğƒ}ƒEƒX‚Ì‚ ‚é‘¤‚ÖŒü‚¯‚é")]
+    [Tooltip("ä½“(Player)ã‚’ãƒã‚¦ã‚¹ã®ã‚ã‚‹å´ã¸å‘ã‘ã‚‹")]
     public bool faceBodyToMouse = true;
-    [Tooltip("‘Ì‚ÌŒü‚«‚ª‹t‚É‚È‚éê‡‚Íƒ`ƒFƒbƒN")]
+    [Tooltip("ä½“ã®å‘ããŒé€†ã«ãªã‚‹å ´åˆã¯ãƒã‚§ãƒƒã‚¯")]
     public bool invertBodyFacing = false;
-    [Tooltip("‘Šè‚Ìe‚ÌŒü‚«‚ğ‚È‚ß‚ç‚©‚É‚·‚é‘¬‚³")]
+    [Tooltip("ç›¸æ‰‹ã®éŠƒã®å‘ãã‚’ãªã‚ã‚‰ã‹ã«ã™ã‚‹é€Ÿã•")]
     public float remoteAimSmoothing = 20f;
 
-    [Header("UIİ’è")]
+    [Header("UIè¨­å®š")]
     public GameObject[] weaponSlots;
     public Image[] slotHighlightBorders;
 
-    [Header("İ’è’l")]
+    [Header("è¨­å®šå€¤")]
     public int startWeaponIndex = 0;
 
+    [Header("ç†±ã¨æŒã¡æ›¿ãˆ")]
+    [Tooltip("æŒã¡æ›¿ãˆã«ã‹ã‹ã‚‹æ™‚é–“(ç§’)ã€‚ã“ã®é–“ã¯æ’ƒã¦ãªã„")]
+    public float switchTime = 0.25f;
+    [Tooltip("æ‰‹ã«æŒã£ã¦ã„ã‚‹æ­¦å™¨ãŒ1ç§’ã«å†·ãˆã‚‹é‡")]
+    public float coolRateHeld = 15f;
+    [Tooltip("ã—ã¾ã£ã¦ã„ã‚‹æ­¦å™¨ãŒ1ç§’ã«å†·ãˆã‚‹é‡")]
+    public float coolRateHolstered = 30f;
+    [Tooltip("ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆã—ãŸã¨ãæ’ƒã¦ãªããªã‚‹æ™‚é–“(ç§’)")]
+    public float overheatLockTime = 30f;
+    [Tooltip("ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆãŒæ˜ã‘ãŸã¨ãã®ç†±")]
+    public float heatAfterOverheat = 0f;
+
     [Header("CPU")]
-    [Tooltip("CPU ‚ª‘€ì‚·‚é‚Æ‚«‚ÍƒIƒ“(CpuController ‚ª©“®‚ÅƒIƒ“‚É‚·‚é)")]
+    [Tooltip("CPU ãŒæ“ä½œã™ã‚‹ã¨ãã¯ã‚ªãƒ³(CpuController ãŒè‡ªå‹•ã§ã‚ªãƒ³ã«ã™ã‚‹)")]
     public bool isCpu = false;
 
     private int currentWeaponIndex = 0;
-    private float currentAimAngle = 0f;   // ‘_‚Á‚Ä‚¢‚éŠp“x(ƒ[ƒ‹ƒhŠî€)
-    private float displayedAimAngle = 0f; // ‘Šè‚Ìe‚Ì•\¦—pŠp“x
+    private float currentAimAngle = 0f;   // ç‹™ã£ã¦ã„ã‚‹è§’åº¦(ãƒ¯ãƒ¼ãƒ«ãƒ‰åŸºæº–)
+    private float displayedAimAngle = 0f; // ç›¸æ‰‹ã®éŠƒã®è¡¨ç¤ºç”¨è§’åº¦
     private Transform body;
 
-    // ‘_‚Á‚Ä‚¢‚éŠp“x(‚¿å‚ª‘‚«‚İA‘Sˆõ‚É“¯Šú)
+    private float[] heat;
+    private float[] lockedUntil;
+    private float[] nextShotTime;
+    private float switchEndTime = -1f;
+
+    // ç‹™ã£ã¦ã„ã‚‹è§’åº¦(æŒã¡ä¸»ãŒæ›¸ãè¾¼ã¿ã€å…¨å“¡ã«åŒæœŸ)
     private readonly NetworkVariable<float> netAimAngle = new NetworkVariable<float>(
         0f,
         NetworkVariableReadPermission.Everyone,
@@ -44,23 +61,98 @@ public class WeaponSystem : NetworkBehaviour
 
     private bool IsOnline => IsSpawned;
 
+    // ===== ç”»é¢è¡¨ç¤ºã‚„ CPU ãŒèª­ã‚€æƒ…å ± =====
+
     public int WeaponCount => bulletPrefabs != null ? bulletPrefabs.Length : 0;
+    public int CurrentIndex => currentWeaponIndex;
+    public bool IsSwitching => Time.time < switchEndTime;
+    public float SwitchProgress => switchTime <= 0f ? 1f : Mathf.Clamp01(1f - (switchEndTime - Time.time) / switchTime);
+
+    public float GetHeat(int i)
+    {
+        EnsureArrays();
+        return (i >= 0 && i < heat.Length) ? heat[i] : 0f;
+    }
+
+    public bool IsLocked(int i)
+    {
+        EnsureArrays();
+        return i >= 0 && i < lockedUntil.Length && Time.time < lockedUntil[i];
+    }
+
+    // ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆãŒæ˜ã‘ã‚‹ã¾ã§ã®æ®‹ã‚Šç§’æ•°
+    public float GetLockRemaining(int i)
+    {
+        if (!IsLocked(i)) return 0f;
+        return lockedUntil[i] - Time.time;
+    }
+
+    public string GetWeaponName(int i)
+    {
+        if (i < 0 || i >= WeaponCount || bulletPrefabs[i] == null) return "-";
+        WeaponInfo info = bulletPrefabs[i].GetComponent<WeaponInfo>();
+        if (info != null && !string.IsNullOrEmpty(info.displayName)) return info.displayName;
+        return bulletPrefabs[i].name.ToUpper();
+    }
+
+    // ã„ã¡ã°ã‚“å†·ãˆã¦ã„ã‚‹æ­¦å™¨(ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆä¸­ã¯é™¤ã)
+    public int CoolestWeapon()
+    {
+        EnsureArrays();
+        int best = currentWeaponIndex;
+        float bestHeat = float.MaxValue;
+        for (int i = 0; i < WeaponCount; i++)
+        {
+            if (IsLocked(i)) continue;
+            if (heat[i] < bestHeat)
+            {
+                bestHeat = heat[i];
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    float HeatPerShot(int i)
+    {
+        WeaponInfo info = bulletPrefabs[i] != null ? bulletPrefabs[i].GetComponent<WeaponInfo>() : null;
+        return info != null ? info.heatPerShot : 10f;
+    }
+
+    float FireInterval(int i)
+    {
+        WeaponInfo info = bulletPrefabs[i] != null ? bulletPrefabs[i].GetComponent<WeaponInfo>() : null;
+        return info != null ? info.fireInterval : 0.15f;
+    }
+
+    void EnsureArrays()
+    {
+        int n = WeaponCount;
+        if (heat != null && heat.Length == n) return;
+        heat = new float[n];
+        lockedUntil = new float[n];
+        nextShotTime = new float[n];
+        for (int i = 0; i < n; i++) lockedUntil[i] = -1f;
+    }
+
+    // ===== æ¯ãƒ•ãƒ¬ãƒ¼ãƒ  =====
 
     void Awake()
     {
         var pc = GetComponentInParent<PlayerController>();
         body = pc != null ? pc.transform : transform.root;
+        EnsureArrays();
     }
 
     void Start()
     {
-        currentWeaponIndex = startWeaponIndex;
+        currentWeaponIndex = Mathf.Clamp(startWeaponIndex, 0, Mathf.Max(0, WeaponCount - 1));
         UpdateWeaponUI();
     }
 
     void Update()
     {
-        // ƒIƒ“ƒ‰ƒCƒ“‚Å‘¼l‚ÌƒvƒŒƒCƒ„[:“¯Šú‚³‚ê‚½Šp“x‚Ée‚ğŒü‚¯‚é‚¾‚¯
+        // ã‚ªãƒ³ãƒ©ã‚¤ãƒ³ã§ä»–äººã®ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼:åŒæœŸã•ã‚ŒãŸè§’åº¦ã«éŠƒã‚’å‘ã‘ã‚‹ã ã‘
         if (IsOnline && !IsOwner)
         {
             displayedAimAngle = Mathf.LerpAngle(displayedAimAngle, netAimAngle.Value,
@@ -69,7 +161,9 @@ public class WeaponSystem : NetworkBehaviour
             return;
         }
 
-        // CPU ‚Íƒ}ƒEƒX‚âƒzƒC[ƒ‹‚ğ“Ç‚Ü‚È‚¢(CpuController ‚©‚ç‘€ì‚³‚ê‚é)
+        UpdateHeat();
+
+        // CPU ã¯ãƒã‚¦ã‚¹ã‚„ã‚­ãƒ¼ã‚’èª­ã¾ãªã„(CpuController ã‹ã‚‰æ“ä½œã•ã‚Œã‚‹)
         if (isCpu) return;
 
         if (aimAtMouse) AimAtMouse();
@@ -78,12 +172,36 @@ public class WeaponSystem : NetworkBehaviour
         if (scroll > 0f) SwitchToNextWeapon();
         else if (scroll < 0f) SwitchToPreviousWeapon();
 
-        if (Input.GetMouseButtonDown(0)) ShootCurrentWeapon();
+        // æ•°å­—ã‚­ãƒ¼ 1ã€œ9 ã§æ­¦å™¨ã‚’ç›´æ¥é¸ã¶
+        for (int k = 0; k < 9 && k < WeaponCount; k++)
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1 + k)) SetWeapon(k);
+        }
+
+        // å·¦ã‚¯ãƒªãƒƒã‚¯ã‚’æŠ¼ã—ã¦ã„ã‚‹é–“ã€é€£å°„é–“éš”ã”ã¨ã«æ’ƒã¤
+        if (Input.GetMouseButton(0)) ShootCurrentWeapon();
     }
 
-    // ===== CPU —p‚Ì‘€ì =====
+    void UpdateHeat()
+    {
+        EnsureArrays();
+        for (int i = 0; i < heat.Length; i++)
+        {
+            if (lockedUntil[i] > 0f)
+            {
+                if (Time.time < lockedUntil[i]) continue; // ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆä¸­ã¯å†·ãˆãªã„
+                lockedUntil[i] = -1f;
+                heat[i] = heatAfterOverheat;               // æ˜ã‘ãŸã‚‰ 50 ã‹ã‚‰å†é–‹
+            }
 
-    // w’è‚µ‚½ˆÊ’u‚ğ‘_‚¤
+            float rate = (i == currentWeaponIndex) ? coolRateHeld : coolRateHolstered;
+            heat[i] = Mathf.Max(0f, heat[i] - rate * Time.deltaTime);
+        }
+    }
+
+    // ===== CPU ç”¨ã®æ“ä½œ =====
+
+    // æŒ‡å®šã—ãŸä½ç½®ã‚’ç‹™ã†
     public void CpuAimAt(Vector2 worldPos)
     {
         Vector2 dir = worldPos - (Vector2)body.position;
@@ -95,20 +213,19 @@ public class WeaponSystem : NetworkBehaviour
         ApplyAim(currentAimAngle);
     }
 
-    // ¡‚Ì•Ší‚ÅŒ‚‚Â
+    // ä»Šã®æ­¦å™¨ã§æ’ƒã¤
     public void CpuShoot()
     {
         ShootCurrentWeapon();
     }
 
-    // •Ší‚ğ‚¿‘Ö‚¦‚é
+    // æ­¦å™¨ã‚’æŒã¡æ›¿ãˆã‚‹
     public void CpuSetWeapon(int index)
     {
-        if (WeaponCount == 0) return;
-        currentWeaponIndex = Mathf.Clamp(index, 0, WeaponCount - 1);
+        SetWeapon(index);
     }
 
-    // ===== Æ€ =====
+    // ===== ç…§æº– =====
 
     void AimAtMouse()
     {
@@ -119,7 +236,7 @@ public class WeaponSystem : NetworkBehaviour
         screenPos.z = Mathf.Abs(cam.transform.position.z - transform.position.z);
         Vector3 mouseWorld = cam.ScreenToWorldPoint(screenPos);
 
-        // ‘Ì‚Ì’†S‚©‚çƒ}ƒEƒX‚Ö‚Ì•ûŒü(e‚ÌªŒ³‚©‚ç‘ª‚é‚ÆƒJ[ƒ\ƒ‹‚ª‹ß‚¢‚Æ‚«‚ÉƒuƒŒ‚é‚½‚ß)
+        // ä½“ã®ä¸­å¿ƒã‹ã‚‰ãƒã‚¦ã‚¹ã¸ã®æ–¹å‘(éŠƒã®æ ¹å…ƒã‹ã‚‰æ¸¬ã‚‹ã¨ã‚«ãƒ¼ã‚½ãƒ«ãŒè¿‘ã„ã¨ãã«ãƒ–ãƒ¬ã‚‹ãŸã‚)
         Vector2 dir = (Vector2)(mouseWorld - body.position);
         if (dir.sqrMagnitude < 0.0001f) return;
 
@@ -131,7 +248,7 @@ public class WeaponSystem : NetworkBehaviour
         ApplyAim(currentAimAngle);
     }
 
-    // ‘Ì‚ğƒ}ƒEƒX‚Ì‚ ‚é‘¤‚ÖŒü‚¯‚é(Scale X‚Ì•„†‚Å¶‰E”½“])
+    // ä½“ã‚’ãƒã‚¦ã‚¹ã®ã‚ã‚‹å´ã¸å‘ã‘ã‚‹(Scale Xã®ç¬¦å·ã§å·¦å³åè»¢)
     void FaceBody(float dirX)
     {
         if (Mathf.Abs(dirX) < 0.01f) return;
@@ -144,7 +261,7 @@ public class WeaponSystem : NetworkBehaviour
         body.localScale = s;
     }
 
-    // ƒ[ƒ‹ƒhŠî€‚ÌŠp“x‚Ée‚ğŒü‚¯‚é(e‚ª¶‰E”½“]‚µ‚Ä‚¢‚Ä‚à³‚µ‚­Œü‚­‚æ‚¤•â³)
+    // ãƒ¯ãƒ¼ãƒ«ãƒ‰åŸºæº–ã®è§’åº¦ã«éŠƒã‚’å‘ã‘ã‚‹(è¦ªãŒå·¦å³åè»¢ã—ã¦ã„ã¦ã‚‚æ­£ã—ãå‘ãã‚ˆã†è£œæ­£)
     void ApplyAim(float worldAngle)
     {
         float rad = worldAngle * Mathf.Deg2Rad;
@@ -153,25 +270,34 @@ public class WeaponSystem : NetworkBehaviour
         transform.localRotation = Quaternion.Euler(0f, 0f, localAngle);
     }
 
-    // ===== •ŠíØ‚è‘Ö‚¦ =====
+    // ===== æ­¦å™¨åˆ‡ã‚Šæ›¿ãˆ =====
+
+    void SetWeapon(int index)
+    {
+        if (WeaponCount == 0) return;
+        index = Mathf.Clamp(index, 0, WeaponCount - 1);
+        if (index == currentWeaponIndex) return;
+
+        currentWeaponIndex = index;
+        switchEndTime = Time.time + switchTime; // æŒã¡æ›¿ãˆä¸­ã¯æ’ƒã¦ãªã„
+        UpdateWeaponUI();
+    }
 
     void SwitchToNextWeapon()
     {
-        if (bulletPrefabs.Length == 0) return;
-        currentWeaponIndex = (currentWeaponIndex + 1) % bulletPrefabs.Length;
-        UpdateWeaponUI();
+        if (WeaponCount == 0) return;
+        SetWeapon((currentWeaponIndex + 1) % WeaponCount);
     }
 
     void SwitchToPreviousWeapon()
     {
-        if (bulletPrefabs.Length == 0) return;
-        currentWeaponIndex = (currentWeaponIndex - 1 + bulletPrefabs.Length) % bulletPrefabs.Length;
-        UpdateWeaponUI();
+        if (WeaponCount == 0) return;
+        SetWeapon((currentWeaponIndex - 1 + WeaponCount) % WeaponCount);
     }
 
     void UpdateWeaponUI()
     {
-        // CPU ‚Ì‚¿‘Ö‚¦‚ÅƒvƒŒƒCƒ„[‚Ì•Ší•\¦‚ª•Ï‚í‚ç‚È‚¢‚æ‚¤‚É‚·‚é
+        // CPU ã®æŒã¡æ›¿ãˆã§ãƒ—ãƒ¬ã‚¤ãƒ¤ãƒ¼ã®æ­¦å™¨è¡¨ç¤ºãŒå¤‰ã‚ã‚‰ãªã„ã‚ˆã†ã«ã™ã‚‹
         if (isCpu) return;
         if (IsOnline && !IsOwner) return;
         if (slotHighlightBorders == null || slotHighlightBorders.Length == 0) return;
@@ -189,30 +315,50 @@ public class WeaponSystem : NetworkBehaviour
         }
     }
 
-    // ===== ”­Ë =====
+    // ===== ç™ºå°„ =====
+
+    public bool CanShoot()
+    {
+        EnsureArrays();
+        int i = currentWeaponIndex;
+        if (i < 0 || i >= WeaponCount) return false;
+        if (IsSwitching) return false;
+        if (IsLocked(i)) return false;
+        return Time.time >= nextShotTime[i];
+    }
 
     void ShootCurrentWeapon()
     {
         if (firePoint == null) return;
+        if (!CanShoot()) return;
 
         int i = currentWeaponIndex;
         Vector3 pos = firePoint.position;
         Quaternion rot = GetFireRotation();
 
-        // ©•ª‚Ì‰æ–Ê‚É‚Í‚·‚®o‚·
+        // ç†±ã¨é€£å°„é–“éš”
+        heat[i] += HeatPerShot(i);
+        nextShotTime[i] = Time.time + FireInterval(i);
+        if (heat[i] >= 100f)
+        {
+            heat[i] = 100f;
+            lockedUntil[i] = Time.time + overheatLockTime;
+        }
+
+        // è‡ªåˆ†ã®ç”»é¢ã«ã¯ã™ãå‡ºã™
         SpawnBullet(i, pos, rot);
 
-        // ƒIƒ“ƒ‰ƒCƒ“‚Í‘¼‚Ì‘Sˆõ‚Ì‰æ–Ê‚É‚à“¯‚¶’e‚ğo‚µ‚Ä‚à‚ç‚¤
+        // ã‚ªãƒ³ãƒ©ã‚¤ãƒ³æ™‚ã¯ä»–ã®å…¨å“¡ã®ç”»é¢ã«ã‚‚åŒã˜å¼¾ã‚’å‡ºã—ã¦ã‚‚ã‚‰ã†
         if (IsOnline) ShootRpc(i, pos, rot);
     }
 
-    // ’e‚ğ”ò‚Î‚·Œü‚«
+    // å¼¾ã‚’é£›ã°ã™å‘ã
     Quaternion GetFireRotation()
     {
-        // ƒ}ƒEƒXÆ€’†(‚Æ CPU)‚ÍA‘_‚Á‚½Šp“x‚É‚»‚Ì‚Ü‚Ü”ò‚Î‚·
+        // ãƒã‚¦ã‚¹ç…§æº–ä¸­(ã¨ CPU)ã¯ã€ç‹™ã£ãŸè§’åº¦ã«ãã®ã¾ã¾é£›ã°ã™
         if (aimAtMouse || isCpu) return Quaternion.Euler(0f, 0f, currentAimAngle);
 
-        // Æ€‚È‚µ‚Ìê‡‚Íe‚ÌŒ©‚½–Ú‚ÌŒü‚«‚É‡‚í‚¹‚é
+        // ç…§æº–ãªã—ã®å ´åˆã¯éŠƒã®è¦‹ãŸç›®ã®å‘ãã«åˆã‚ã›ã‚‹
         Quaternion rot = firePoint.rotation;
         if (firePoint.lossyScale.x < 0f)
             rot *= Quaternion.Euler(0f, 0f, 180f);
@@ -229,11 +375,27 @@ public class WeaponSystem : NetworkBehaviour
     {
         if (index < 0 || index >= bulletPrefabs.Length || bulletPrefabs[index] == null) return;
 
-        GameObject fired = Instantiate(bulletPrefabs[index], position, rotation);
-        IgnoreShooter(fired);
+        GameObject prefab = bulletPrefabs[index];
+
+        // ShotPattern ãŒä»˜ã„ã¦ã„ã‚‹å¼¾ã¯ã€æ‰‡çŠ¶ã«ä½•ç™ºã‚‚ã°ã‚‰ã¾ã(ã‚·ãƒ§ãƒƒãƒˆã‚¬ãƒ³)
+        ShotPattern pattern = prefab.GetComponent<ShotPattern>();
+        int count = pattern != null ? Mathf.Max(1, pattern.pelletCount) : 1;
+        float spread = pattern != null ? pattern.spreadAngle : 0f;
+        float jitter = pattern != null ? pattern.randomJitter : 0f;
+
+        for (int i = 0; i < count; i++)
+        {
+            float t = count == 1 ? 0f : (float)i / (count - 1) - 0.5f;
+            float angle = t * spread + Random.Range(-jitter, jitter);
+            Quaternion rot = rotation * Quaternion.Euler(0f, 0f, angle);
+
+            GameObject fired = Instantiate(prefab, position, rot);
+            IgnoreShooter(fired);
+            fired.SendMessage("SetOwner", body, SendMessageOptions.DontRequireReceiver);
+        }
     }
 
-    // Œ‚‚Á‚½–{l‚É©•ª‚Ì’e‚ª“–‚½‚ç‚È‚¢‚æ‚¤‚É‚·‚é
+    // æ’ƒã£ãŸæœ¬äººã«è‡ªåˆ†ã®å¼¾ãŒå½“ãŸã‚‰ãªã„ã‚ˆã†ã«ã™ã‚‹
     void IgnoreShooter(GameObject bullet)
     {
         Collider2D[] bulletCols = bullet.GetComponentsInChildren<Collider2D>();

@@ -16,6 +16,9 @@ public class PlayerController : NetworkBehaviour
     [Header("基本移動")]
     public float moveSpeed = 8f;
     public float jumpForce = 12f;
+    [Tooltip("空中でジャンプできる回数(1 なら2段ジャンプ)")]
+    public int maxAirJumps = 1;
+    private int airJumpsLeft;
 
     [Header("接地判定")]
     [Tooltip("この角度までの坂を「地面」とみなす")]
@@ -97,6 +100,7 @@ public class PlayerController : NetworkBehaviour
         if (isDashing) return;
 
         isGrounded = rb.IsTouching(groundFilter);
+        if (isGrounded && rb.linearVelocity.y <= 0.1f) airJumpsLeft = maxAirJumps;
         isTouchingWall = wallCheck != null &&
                          Physics2D.OverlapCircle(wallCheck.position, 0.2f, wallLayer);
 
@@ -161,9 +165,14 @@ public class PlayerController : NetworkBehaviour
 
     void HandleJump()
     {
-        // 地面にいるときは通常ジャンプ、空中で壁に触れていれば壁蹴り
+        // 地面にいるときは通常ジャンプ、空中で壁に触れていれば壁蹴り、それ以外は空中ジャンプ
         if (isGrounded) Jump();
         else if (isTouchingWall) WallJump();
+        else if (airJumpsLeft > 0)
+        {
+            airJumpsLeft--;
+            Jump();
+        }
     }
 
     void FixedUpdate()
