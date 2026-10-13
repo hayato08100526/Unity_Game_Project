@@ -180,6 +180,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2ddba81606fc07741b97248e89efe8f3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  displayName: TRACKING
+  displayName: TRACK
   heatPerShot: 25
   fireInterval: 0.6
