@@ -39,7 +39,12 @@ public class PlayerController : NetworkBehaviour
     public PlayerState currentState = PlayerState.Idle;
 
     private Rigidbody2D rb;
+    private HealthSystem health;
     private float moveInput;
+
+    // 脚が壊れていると、移動 80%・ジャンプの高さ 70%(速さは約 84%)
+    private float SpeedMul => (health != null && health.LegBroken) ? 0.8f : 1f;
+    private float JumpMul => (health != null && health.LegBroken) ? 0.84f : 1f;
     private bool isTouchingWall;
     private bool isGrounded;
     private ContactFilter2D groundFilter;
@@ -59,6 +64,7 @@ public class PlayerController : NetworkBehaviour
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+        health = GetComponent<HealthSystem>();
 
         // 足元に「上向きの面」が接しているかで接地を判定する
         groundFilter = new ContactFilter2D();
@@ -180,12 +186,12 @@ public class PlayerController : NetworkBehaviour
         if (!CanControl) return;
 
         if (isDashing) return;
-        rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
+        rb.linearVelocity = new Vector2(moveInput * moveSpeed * SpeedMul, rb.linearVelocity.y);
     }
 
     void Jump()
     {
-        rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * JumpMul);
         isGrounded = false;
     }
 

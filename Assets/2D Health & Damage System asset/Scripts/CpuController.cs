@@ -49,6 +49,45 @@ public class CpuController : MonoBehaviour
     private float strafeTimer;
     private Vector2 aimOffset;
 
+    public enum Difficulty { Easy, Normal, Hard }
+
+    // 強さに合わせて、反応・射撃・狙い・動きの数字をまとめて変える
+    public void ApplyDifficulty(Difficulty d)
+    {
+        switch (d)
+        {
+            case Difficulty.Easy:
+                thinkInterval = 0.45f;
+                fireIntervalMin = 1.0f;
+                fireIntervalMax = 1.8f;
+                aimError = 1.4f;
+                randomJumpChance = 0.05f;
+                preferredDistance = 6f;
+                weaponChangeInterval = 8f;
+                break;
+
+            case Difficulty.Normal:
+                thinkInterval = 0.25f;
+                fireIntervalMin = 0.5f;
+                fireIntervalMax = 1.2f;
+                aimError = 0.6f;
+                randomJumpChance = 0.1f;
+                preferredDistance = 5f;
+                weaponChangeInterval = 6f;
+                break;
+
+            case Difficulty.Hard:
+                thinkInterval = 0.12f;
+                fireIntervalMin = 0.3f;
+                fireIntervalMax = 0.7f;
+                aimError = 0.25f;
+                randomJumpChance = 0.18f;
+                preferredDistance = 4.5f;
+                weaponChangeInterval = 4f;
+                break;
+        }
+    }
+
     void Awake()
     {
         pc = GetComponent<PlayerController>();

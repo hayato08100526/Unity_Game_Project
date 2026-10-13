@@ -1294,6 +1294,7 @@ MonoBehaviour:
   respawnDelay: 1.5
   invincibleTime: 2
   respawnPoint: {x: 0, y: 8.5}
+  hudFont: {fileID: 12800000, guid: 6b63c1707a37e1a4cb3a549d680d2ad3, type: 3}
   blastLeft: -16
   blastRight: 16
   blastBottom: -8
@@ -1310,6 +1311,7 @@ GameObject:
   - component: {fileID: 551322100}
   - component: {fileID: 551322099}
   - component: {fileID: 551322102}
+  - component: {fileID: 551322103}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1435,6 +1437,26 @@ MonoBehaviour:
     m_MipBias: 0
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
+--- !u!114 &551322103
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 551322098}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1bf57fcb7516522488e71b13da70b1e7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targets: []
+  minSize: 5
+  maxSize: 9
+  padding: 3
+  offset: {x: 0, y: 1.5}
+  minCenter: {x: -8, y: 0}
+  maxCenter: {x: 8, y: 6}
+  smooth: 4
 --- !u!1 &615445581
 GameObject:
   m_ObjectHideFlags: 0

@@ -43,6 +43,19 @@ public class WeaponSystem : NetworkBehaviour
     [Tooltip("CPU が操作するときはオン(CpuController が自動でオンにする)")]
     public bool isCpu = false;
 
+    [Header("部位破壊の効果")]
+    [Tooltip("頭が壊れているとき、撃つたびにずれる角度(度)")]
+    public float headBrokenAimError = 8f;
+    [Tooltip("腕が壊れているときの持ち替え時間(秒)")]
+    public float armBrokenSwitchTime = 0.4f;
+    [Tooltip("腕が壊れているときの連射間隔の倍率")]
+    public float armBrokenFireIntervalMul = 1.3f;
+
+    private HealthSystem health;
+    private bool ArmBroken => health != null && health.ArmBroken;
+    private bool HeadBroken => health != null && health.HeadBroken;
+    private float CurrentSwitchTime => ArmBroken ? armBrokenSwitchTime : switchTime;
+
     private int currentWeaponIndex = 0;
     private float currentAimAngle = 0f;   // 狙っている角度(ワールド基準)
     private float displayedAimAngle = 0f; // 相手の銃の表示用角度
@@ -66,7 +79,7 @@ public class WeaponSystem : NetworkBehaviour
     public int WeaponCount => bulletPrefabs != null ? bulletPrefabs.Length : 0;
     public int CurrentIndex => currentWeaponIndex;
     public bool IsSwitching => Time.time < switchEndTime;
-    public float SwitchProgress => switchTime <= 0f ? 1f : Mathf.Clamp01(1f - (switchEndTime - Time.time) / switchTime);
+    public float SwitchProgress => CurrentSwitchTime <= 0f ? 1f : Mathf.Clamp01(1f - (switchEndTime - Time.time) / CurrentSwitchTime);
 
     public float GetHeat(int i)
     {
@@ -141,6 +154,7 @@ public class WeaponSystem : NetworkBehaviour
     {
         var pc = GetComponentInParent<PlayerController>();
         body = pc != null ? pc.transform : transform.root;
+        health = GetComponentInParent<HealthSystem>();
         EnsureArrays();
     }
 
@@ -279,7 +293,7 @@ public class WeaponSystem : NetworkBehaviour
         if (index == currentWeaponIndex) return;
 
         currentWeaponIndex = index;
-        switchEndTime = Time.time + switchTime; // 持ち替え中は撃てない
+        switchEndTime = Time.time + CurrentSwitchTime; // 持ち替え中は撃てない
         UpdateWeaponUI();
     }
 
@@ -338,7 +352,10 @@ public class WeaponSystem : NetworkBehaviour
 
         // 熱と連射間隔
         heat[i] += HeatPerShot(i);
-        nextShotTime[i] = Time.time + FireInterval(i);
+        nextShotTime[i] = Time.time + FireInterval(i) * (ArmBroken ? armBrokenFireIntervalMul : 1f);
+
+        // 頭が壊れていると狙いがブレる
+        if (HeadBroken) rot *= Quaternion.Euler(0f, 0f, Random.Range(-headBrokenAimError, headBrokenAimError));
         if (heat[i] >= 100f)
         {
             heat[i] = 100f;

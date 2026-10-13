@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using Unity.Netcode;
 using TMPro;
@@ -12,6 +13,14 @@ public class HealthSystem : NetworkBehaviour
     [Tooltip("HP が減るほど吹っ飛びやすくする(1 + 失ったHPの割合 × この値)")]
     public float knockbackGrowth = 1f;
 
+    [Header("部位破壊(CPU 対戦のみ)")]
+    public bool enablePartDamage = true;
+    public int headDurability = 20;
+    public int armDurability = 35;
+    public int legDurability = 45;
+    [Tooltip("頭に当たったときのダメージ倍率")]
+    public float headDamageMultiplier = 1.5f;
+
     [Header("UI設定")]
     public GameObject hpText;
     [Tooltip("オンライン時、hpTextが空ならこの名前のオブジェクトをシーンから探します")]
@@ -20,7 +29,22 @@ public class HealthSystem : NetworkBehaviour
     [Header("リスポーン位置(ソロ用)")]
     [SerializeField] private Vector3 soloRespawnPosition = Vector3.zero;
 
+    public enum Part { Head, Torso, Arm, Leg }
+
+    // 部位が壊れたときに知らせる(MatchManager が文字を出すのに使う)
+    public event Action<HealthSystem, Part> OnPartBroken;
+
+    private int headHp, armHp, legHp;
+
+    public bool HeadBroken => enablePartDamage && headHp <= 0;
+    public bool ArmBroken => enablePartDamage && armHp <= 0;
+    public bool LegBroken => enablePartDamage && legHp <= 0;
+    public float HeadRatio => Mathf.Clamp01((float)headHp / Mathf.Max(1, headDurability));
+    public float ArmRatio => Mathf.Clamp01((float)armHp / Mathf.Max(1, armDurability));
+    public float LegRatio => Mathf.Clamp01((float)legHp / Mathf.Max(1, legDurability));
+
     private Rigidbody2D rb;
+    private Collider2D bodyCollider;
     private SpriteRenderer[] renderers;
     private float invincibleUntil = -1f;
     private bool wasInvincible;
@@ -39,7 +63,9 @@ public class HealthSystem : NetworkBehaviour
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+        bodyCollider = GetComponent<Collider2D>();
         renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        ResetParts();
     }
 
     private void Start()
@@ -97,7 +123,26 @@ public class HealthSystem : NetworkBehaviour
         }
     }
 
-    // 弾などから呼ばれる(呼び出し方は今までと同じ)
+    // ===== ダメージ =====
+
+    // 当たった位置つき(弾やグレネードから呼ばれる)。位置で部位を決める
+    public void TakeDamage(int damage, Vector2 knockback, Vector2 hitPoint)
+    {
+        if (IsOnline || !enablePartDamage)
+        {
+            TakeDamage(damage, knockback);
+            return;
+        }
+        if (currentHealth <= 0 || IsInvincible) return;
+
+        Part part = GetPart(hitPoint);
+        if (part == Part.Head) damage = Mathf.RoundToInt(damage * headDamageMultiplier);
+
+        DamagePart(part, damage);
+        TakeDamage(damage, knockback);
+    }
+
+    // 今までどおりの呼び方(位置なし = 胴体扱い)
     public void TakeDamage(int damage, Vector2 knockback)
     {
         if (!IsOnline)
@@ -123,6 +168,51 @@ public class HealthSystem : NetworkBehaviour
         KnockbackRpc(knockback);
     }
 
+    // 当たった高さで部位を決める(上の方=頭、下の方=脚、真ん中の前側=腕)
+    Part GetPart(Vector2 hitPoint)
+    {
+        Bounds b = bodyCollider != null
+            ? bodyCollider.bounds
+            : new Bounds(transform.position, new Vector3(1f, 1.6f, 0f));
+
+        float t = Mathf.InverseLerp(b.min.y, b.max.y, hitPoint.y);
+        if (t > 0.75f) return Part.Head;
+        if (t < 0.3f) return Part.Leg;
+
+        float facing = transform.localScale.x >= 0f ? 1f : -1f;
+        bool front = Mathf.Sign(hitPoint.x - b.center.x) == facing;
+        return front ? Part.Arm : Part.Torso;
+    }
+
+    void DamagePart(Part part, int damage)
+    {
+        switch (part)
+        {
+            case Part.Head:
+                bool headWasOk = headHp > 0;
+                headHp -= damage;
+                if (headWasOk && headHp <= 0) OnPartBroken?.Invoke(this, Part.Head);
+                break;
+            case Part.Arm:
+                bool armWasOk = armHp > 0;
+                armHp -= damage;
+                if (armWasOk && armHp <= 0) OnPartBroken?.Invoke(this, Part.Arm);
+                break;
+            case Part.Leg:
+                bool legWasOk = legHp > 0;
+                legHp -= damage;
+                if (legWasOk && legHp <= 0) OnPartBroken?.Invoke(this, Part.Leg);
+                break;
+        }
+    }
+
+    void ResetParts()
+    {
+        headHp = headDurability;
+        armHp = armDurability;
+        legHp = legDurability;
+    }
+
     // ダメージなしで吹き飛ばすだけ(グレネードの爆風で自分が飛ぶとき)
     public void Push(Vector2 force)
     {
@@ -139,10 +229,11 @@ public class HealthSystem : NetworkBehaviour
         SetDeadVisual(true);
     }
 
-    // リスポーン:HP を全回復して指定位置に出し、しばらく無敵にする
+    // リスポーン:HP と部位を全回復して指定位置に出し、しばらく無敵にする
     public void Respawn(Vector3 position, float invincibleSeconds)
     {
         currentHealth = maxHealth;
+        ResetParts();
         UpdateHPUI();
         transform.position = position;
         SetDeadVisual(false);
@@ -212,6 +303,7 @@ public class HealthSystem : NetworkBehaviour
     private void ResetPlayer()
     {
         currentHealth = maxHealth;
+        ResetParts();
         UpdateHPUI();
         transform.position = soloRespawnPosition;
         SetDeadVisual(false);

@@ -96,7 +96,7 @@ public class GrenadeBullet : MonoBehaviour
             dir = (dir + Vector2.up * 0.5f).normalized;
 
             if (owner != null && h.transform == owner) h.Push(dir * selfKnockbackForce);
-            else h.TakeDamage(damage, dir * knockbackForce);
+            else h.TakeDamage(damage, dir * knockbackForce, center);
         }
 
         // ’e‚ğ~‚ß‚ÄA”š”­‚ÌŒ©‚½–Ú‚ÉØ‚è‘Ö‚¦‚é

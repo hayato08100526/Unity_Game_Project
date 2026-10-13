@@ -22,14 +22,23 @@ public class MatchManager : MonoBehaviour
     [Header("リスポーン地点(最上段の足場の上)")]
     public Vector2 respawnPoint = new Vector2(0f, 8.5f);
 
+    [Header("画面表示")]
+    [Tooltip("HUD に使うフォント(Fonts フォルダの Oxanium-Bold など .ttf のもの)。空なら標準のフォント")]
+    public Font hudFont;
+
     [Header("場外ライン(ここを越えたらKO)")]
     public float blastLeft = -16f;
     public float blastRight = 16f;
     public float blastBottom = -8f;
     public float blastTop = 16f;
 
-    private enum State { Countdown, Playing, Result }
-    private State state = State.Countdown;
+    private enum State { SelectDifficulty, Countdown, Playing, Result }
+    private State state = State.SelectDifficulty;
+
+    // シーンを読み込み直しても覚えておく(再戦用)
+    private static int savedDifficulty = -1;
+    private static bool skipSelect = false;
+    private static readonly string[] difficultyNames = { "EASY", "NORMAL", "HARD" };
 
     private int playerStocks;
     private int cpuStocks;
@@ -48,6 +57,16 @@ public class MatchManager : MonoBehaviour
     private WeaponSystem playerWeapon;
     private WeaponSystem cpuWeapon;
 
+    // 「LEG BROKEN」などの文字を頭上に出す
+    private class Popup
+    {
+        public Transform who;
+        public string text;
+        public float startTime;
+    }
+    private readonly System.Collections.Generic.List<Popup> popups = new System.Collections.Generic.List<Popup>();
+    private const float PopupDuration = 1.4f;
+
     void Awake()
     {
         Instance = this;
@@ -56,6 +75,16 @@ public class MatchManager : MonoBehaviour
     void OnDestroy()
     {
         if (Instance == this) Instance = null;
+        if (player != null) player.OnPartBroken -= HandlePartBroken;
+        if (cpu != null) cpu.OnPartBroken -= HandlePartBroken;
+    }
+
+    void HandlePartBroken(HealthSystem who, HealthSystem.Part part)
+    {
+        string text = part == HealthSystem.Part.Head ? "HEAD BROKEN"
+                    : part == HealthSystem.Part.Arm ? "ARM BROKEN"
+                    : "LEG BROKEN";
+        popups.Add(new Popup { who = who.transform, text = text, startTime = Time.time });
     }
 
     void Start()
@@ -68,6 +97,9 @@ public class MatchManager : MonoBehaviour
         playerWeapon = FindWeapon(player);
         cpuWeapon = FindWeapon(cpu);
 
+        if (player != null) player.OnPartBroken += HandlePartBroken;
+        if (cpu != null) cpu.OnPartBroken += HandlePartBroken;
+
         playerStocks = stockCount;
         cpuStocks = stockCount;
         timeLeft = matchTime;
@@ -75,6 +107,28 @@ public class MatchManager : MonoBehaviour
 
         SetControl(player, false);
         SetControl(cpu, false);
+
+        // 「同じ強さで再戦」のときは、強さ選びを飛ばす
+        if (skipSelect && savedDifficulty >= 0)
+        {
+            skipSelect = false;
+            ChooseDifficulty(savedDifficulty);
+        }
+        else
+        {
+            state = State.SelectDifficulty;
+        }
+    }
+
+    void ChooseDifficulty(int index)
+    {
+        savedDifficulty = index;
+
+        var brain = cpu != null ? cpu.GetComponent<CpuController>() : null;
+        if (brain != null) brain.ApplyDifficulty((CpuController.Difficulty)index);
+
+        state = State.Countdown;
+        countdownLeft = countdownTime;
     }
 
     HealthSystem FindFighter(string objectName)
@@ -100,6 +154,12 @@ public class MatchManager : MonoBehaviour
     {
         switch (state)
         {
+            case State.SelectDifficulty:
+                if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseDifficulty(0);
+                else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseDifficulty(1);
+                else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseDifficulty(2);
+                break;
+
             case State.Countdown:
                 countdownLeft -= Time.deltaTime;
                 if (countdownLeft <= 0f)
@@ -127,13 +187,17 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case State.Result:
-                if (Input.GetKeyDown(KeyCode.R))
-                {
-                    Time.timeScale = 1f;
-                    SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-                }
+                if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // 同じ強さで再戦
+                else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // 強さを選び直す
                 break;
         }
+    }
+
+    void Reload(bool sameDifficulty)
+    {
+        skipSelect = sameDifficulty;
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
     // 場外に出たか、HP が0になったら KO
@@ -231,6 +295,14 @@ public class MatchManager : MonoBehaviour
             midStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
             smallStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
             tinyStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
+
+            if (hudFont != null)
+            {
+                bigStyle.font = hudFont;
+                midStyle.font = hudFont;
+                smallStyle.font = hudFont;
+                tinyStyle.font = hudFont;
+            }
         }
 
         float unit = Screen.height / 20f;
@@ -243,24 +315,38 @@ public class MatchManager : MonoBehaviour
         Color amber = new Color32(0xFF, 0xB5, 0x47, 0xFF);
         Color white = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-        // タイマー
+        // タイマー(残り30秒でアンバーに)
         int m = Mathf.FloorToInt(timeLeft / 60f);
         int s = Mathf.FloorToInt(timeLeft % 60f);
-        midStyle.normal.textColor = white;
-        GUI.Label(new Rect(0, unit * 0.3f, Screen.width, unit * 1.2f), m + ":" + s.ToString("00"), midStyle);
+        Rect timerRect = new Rect((Screen.width - unit * 3.4f) / 2f, unit * 0.4f, unit * 3.4f, unit * 1.3f);
+        Fill(timerRect, new Color32(0x0D, 0x11, 0x17, 0xE0));
+        Border(timerRect, new Color32(0x1E, 0x27, 0x33, 0xFF), 1f);
+        midStyle.normal.textColor = (state == State.Playing && timeLeft <= 30f) ? amber : white;
+        GUI.Label(timerRect, m + ":" + s.ToString("00"), midStyle);
 
-        // 自分と CPU の情報
-        DrawFighterInfo(new Rect(unit * 0.6f, Screen.height - unit * 2.4f, Screen.width * 0.4f, unit * 2f),
-                        "YOU", playerStocks, player, playerWaiting, cyan, TextAnchor.UpperLeft);
-        DrawFighterInfo(new Rect(Screen.width * 0.6f - unit * 0.6f, Screen.height - unit * 2.4f, Screen.width * 0.4f, unit * 2f),
-                        "CPU", cpuStocks, cpu, cpuWaiting, amber, TextAnchor.UpperRight);
+        // 自分と CPU のパネル
+        string cpuSub = "";
+        if (savedDifficulty >= 0) cpuSub = difficultyNames[savedDifficulty];
+        if (cpuWeapon != null) cpuSub += (cpuSub.Length > 0 ? "  /  " : "") + cpuWeapon.GetWeaponName(cpuWeapon.CurrentIndex);
+
+        DrawFighterPanel(false, unit, "P1", "YOU", "", playerStocks, player, playerWaiting,
+                         cyan, new Color32(0x03, 0x14, 0x17, 0xFF), white);
+        DrawFighterPanel(true, unit, "CPU", "CPU", cpuSub, cpuStocks, cpu, cpuWaiting,
+                         amber, new Color32(0x1F, 0x13, 0x00, 0xFF), white);
 
         // 自分の武器と熱ゲージ(画面下の中央)
         DrawWeaponSlots(playerWeapon, unit, cyan, white);
 
+        // 部位が壊れたときの文字(頭上に出して、上に浮かびながら消える)
+        DrawPopups(unit);
+
         // カウントダウン / FIGHT / 結果
         Rect center = new Rect(0, Screen.height * 0.3f, Screen.width, unit * 3f);
-        if (state == State.Countdown)
+        if (state == State.SelectDifficulty)
+        {
+            DrawDifficultySelect(unit, cyan, white);
+        }
+        else if (state == State.Countdown)
         {
             bigStyle.normal.textColor = white;
             GUI.Label(center, Mathf.CeilToInt(countdownLeft).ToString(), bigStyle);
@@ -275,26 +361,140 @@ public class MatchManager : MonoBehaviour
             bigStyle.normal.textColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
             GUI.Label(center, resultText, bigStyle);
             midStyle.normal.textColor = white;
-            GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "Press R to rematch", midStyle);
+            GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "R : REMATCH    D : CHANGE LEVEL", midStyle);
         }
     }
 
-    void DrawFighterInfo(Rect area, string label, int stocks, HealthSystem fighter, bool waiting, Color color, TextAnchor align)
+    void DrawDifficultySelect(float unit, Color accent, Color white)
     {
-        smallStyle.alignment = align;
-        smallStyle.normal.textColor = color;
+        Color panel = new Color32(0x07, 0x09, 0x0D, 0xD8);
+        Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
+        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
 
-        string stockMarks = "";
-        for (int i = 0; i < stockCount; i++) stockMarks += i < stocks ? "■" : "□";
+        // 画面全体を少し暗くする
+        Fill(new Rect(0, 0, Screen.width, Screen.height), panel);
 
+        midStyle.normal.textColor = white;
+        GUI.Label(new Rect(0, Screen.height * 0.18f, Screen.width, unit * 1.4f), "SELECT CPU LEVEL", midStyle);
+
+        float w = unit * 6f, h = unit * 2.4f, gap = unit * 0.6f;
+        float total = w * 3 + gap * 2;
+        float x0 = (Screen.width - total) / 2f;
+        float y0 = Screen.height * 0.38f;
+
+        string[] notes = { "Slow and careless", "A fair fight", "Fast and accurate" };
+
+        for (int i = 0; i < 3; i++)
+        {
+            Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            Fill(r, card);
+            Border(r, hover ? accent : line, hover ? 2f : 1f);
+
+            midStyle.normal.textColor = hover ? accent : white;
+            GUI.Label(new Rect(r.x, r.y + h * 0.12f, w, h * 0.45f), (i + 1) + "  " + difficultyNames[i], midStyle);
+
+            tinyStyle.alignment = TextAnchor.MiddleCenter;
+            tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
+            GUI.Label(new Rect(r.x, r.y + h * 0.58f, w, h * 0.3f), notes[i], tinyStyle);
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+
+            // クリックでも選べる
+            if (GUI.Button(r, GUIContent.none, GUIStyle.none)) ChooseDifficulty(i);
+        }
+
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
+        GUI.Label(new Rect(0, y0 + h + unit * 0.8f, Screen.width, unit), "Click a card or press 1 / 2 / 3", tinyStyle);
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
+    }
+
+    // 画面下の左右に出す、1人分のパネル
+    void DrawFighterPanel(bool rightSide, float unit, string badge, string name, string sub,
+                          int stocks, HealthSystem fighter, bool waiting,
+                          Color accent, Color badgeText, Color white)
+    {
+        Color panel = new Color32(0x0D, 0x11, 0x17, 0xE0);
+        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
+        Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
+        Color hot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
+
+        float w = unit * 7.6f, h = unit * 2.5f;
+        float x = rightSide ? Screen.width - w - unit * 0.5f : unit * 0.5f;
+        float y = Screen.height - h - unit * 0.5f;
+        Rect r = new Rect(x, y, w, h);
+
+        Fill(r, panel);
+        Border(r, line, 1f);
+
+        // バッジ(P1 / CPU)
+        Rect badgeRect = new Rect(x + unit * 0.3f, y + unit * 0.3f, unit * 1.4f, unit * 0.75f);
+        Fill(badgeRect, accent);
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = badgeText;
+        GUI.Label(badgeRect, badge, tinyStyle);
+
+        // 名前と補足(強さ・武器)
+        smallStyle.alignment = TextAnchor.MiddleLeft;
+        smallStyle.normal.textColor = white;
+        GUI.Label(new Rect(x + unit * 2f, y + unit * 0.22f, w * 0.5f, unit * 0.9f), name, smallStyle);
+
+        // 部位の状態(H 頭 / A 腕 / L 脚):無事=枠だけ、半分以下=オレンジ、壊れた=赤
+        float px = x + unit * 0.3f, py = y + unit * 1.25f, pw = unit * 0.62f, ph = unit * 0.5f;
+        if (fighter != null && fighter.enablePartDamage)
+        {
+            string[] partLabels = { "H", "A", "L" };
+            float[] ratios = { fighter.HeadRatio, fighter.ArmRatio, fighter.LegRatio };
+            Color red = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
+
+            for (int i = 0; i < 3; i++)
+            {
+                Rect pr = new Rect(px + i * (pw + unit * 0.12f), py, pw, ph);
+                bool broken = ratios[i] <= 0f;
+                bool damaged = ratios[i] <= 0.5f;
+
+                if (broken) Fill(pr, red);
+                else if (damaged) Fill(pr, hot);
+                else Border(pr, line, 1f);
+
+                tinyStyle.alignment = TextAnchor.MiddleCenter;
+                tinyStyle.normal.textColor = (broken || damaged) ? new Color32(0x07, 0x09, 0x0D, 0xFF) : grey;
+                GUI.Label(pr, partLabels[i], tinyStyle);
+            }
+        }
+
+        // 補足(強さ・武器)は部位の右に
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
+        tinyStyle.normal.textColor = grey;
+        if (sub.Length > 0)
+            GUI.Label(new Rect(px + 3f * (pw + unit * 0.12f) + unit * 0.15f, py - unit * 0.05f, w * 0.45f, unit * 0.6f), sub, tinyStyle);
+
+        // ストック(右上の四角)
+        float sq = unit * 0.42f, sgap = unit * 0.18f;
+        for (int i = 0; i < stockCount; i++)
+        {
+            Rect s = new Rect(x + w - unit * 0.35f - (stockCount - i) * (sq + sgap) + sgap, y + unit * 0.45f, sq, sq);
+            if (i < stocks) Fill(s, accent);
+            else Border(s, line, 1f);
+        }
+
+        // HP の数字(右下に大きく)
         int hp = (fighter != null && !waiting) ? fighter.currentHealth : 0;
-        string text = label + "  " + stockMarks + "\nHP " + hp;
+        int maxHp = fighter != null ? Mathf.Max(1, fighter.maxHealth) : 100;
 
-        // CPU は今持っている武器も表示する
-        if (fighter == cpu && cpuWeapon != null)
-            text += "\n" + cpuWeapon.GetWeaponName(cpuWeapon.CurrentIndex);
+        midStyle.alignment = TextAnchor.MiddleRight;
+        midStyle.normal.textColor = hp <= maxHp * 0.3f ? hot : white;
+        GUI.Label(new Rect(x + w * 0.4f, y + unit * 0.95f, w * 0.6f - unit * 0.35f, unit * 1.0f), hp.ToString(), midStyle);
+        midStyle.alignment = TextAnchor.MiddleCenter;
 
-        GUI.Label(area, text, smallStyle);
+        // HP バー
+        Rect bar = new Rect(x + unit * 0.3f, y + h - unit * 0.42f, w - unit * 0.6f, unit * 0.16f);
+        Fill(bar, line);
+        float ratio = Mathf.Clamp01((float)hp / maxHp);
+        Fill(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), hp <= maxHp * 0.3f ? hot : accent);
+
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
     void DrawWeaponSlots(WeaponSystem weapon, float unit, Color accent, Color white)
@@ -345,6 +545,42 @@ public class MatchManager : MonoBehaviour
                 : Mathf.Clamp01(heat / 100f);
             Fill(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), barColor);
         }
+    }
+
+    void DrawPopups(float unit)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        Color hot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
+        smallStyle.alignment = TextAnchor.MiddleCenter;
+
+        for (int i = popups.Count - 1; i >= 0; i--)
+        {
+            Popup p = popups[i];
+            float age = Time.time - p.startTime;
+            if (p.who == null || age > PopupDuration)
+            {
+                popups.RemoveAt(i);
+                continue;
+            }
+
+            float u = age / PopupDuration;
+            Vector3 screen = cam.WorldToScreenPoint(p.who.position + Vector3.up * 1.6f);
+            if (screen.z < 0f) continue;
+
+            float sx = screen.x;
+            float sy = Screen.height - screen.y - u * unit * 1.2f; // 上に浮かぶ
+            Rect r = new Rect(sx - unit * 5f, sy - unit * 0.5f, unit * 10f, unit);
+
+            // 読みやすいように、暗い影を少しずらして重ねる
+            smallStyle.normal.textColor = new Color(0f, 0f, 0f, 0.7f * (1f - u * u));
+            GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), p.text, smallStyle);
+            smallStyle.normal.textColor = new Color(hot.r, hot.g, hot.b, 1f - u * u);
+            GUI.Label(r, p.text, smallStyle);
+        }
+
+        smallStyle.alignment = TextAnchor.MiddleLeft;
     }
 
     void Fill(Rect r, Color c)
