@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using Unity.Netcode;
 
-// 武器の照準・切り替え・発射を管理するスクリプト(ソロ・オンライン両対応)
+// 武器の照準・切り替え・発射を管理するスクリプト(ソロ・オンライン・CPU対応)
 // Gun_Normal(銃)に付ける
 public class WeaponSystem : NetworkBehaviour
 {
@@ -27,6 +27,10 @@ public class WeaponSystem : NetworkBehaviour
     [Header("設定値")]
     public int startWeaponIndex = 0;
 
+    [Header("CPU")]
+    [Tooltip("CPU が操作するときはオン(CpuController が自動でオンにする)")]
+    public bool isCpu = false;
+
     private int currentWeaponIndex = 0;
     private float currentAimAngle = 0f;   // 狙っている角度(ワールド基準)
     private float displayedAimAngle = 0f; // 相手の銃の表示用角度
@@ -39,6 +43,8 @@ public class WeaponSystem : NetworkBehaviour
         NetworkVariableWritePermission.Owner);
 
     private bool IsOnline => IsSpawned;
+
+    public int WeaponCount => bulletPrefabs != null ? bulletPrefabs.Length : 0;
 
     void Awake()
     {
@@ -63,6 +69,9 @@ public class WeaponSystem : NetworkBehaviour
             return;
         }
 
+        // CPU はマウスやホイールを読まない(CpuController から操作される)
+        if (isCpu) return;
+
         if (aimAtMouse) AimAtMouse();
 
         float scroll = Input.mouseScrollDelta.y;
@@ -70,6 +79,33 @@ public class WeaponSystem : NetworkBehaviour
         else if (scroll < 0f) SwitchToPreviousWeapon();
 
         if (Input.GetMouseButtonDown(0)) ShootCurrentWeapon();
+    }
+
+    // ===== CPU 用の操作 =====
+
+    // 指定した位置を狙う
+    public void CpuAimAt(Vector2 worldPos)
+    {
+        Vector2 dir = worldPos - (Vector2)body.position;
+        if (dir.sqrMagnitude < 0.0001f) return;
+
+        if (faceBodyToMouse) FaceBody(dir.x);
+
+        currentAimAngle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        ApplyAim(currentAimAngle);
+    }
+
+    // 今の武器で撃つ
+    public void CpuShoot()
+    {
+        ShootCurrentWeapon();
+    }
+
+    // 武器を持ち替える
+    public void CpuSetWeapon(int index)
+    {
+        if (WeaponCount == 0) return;
+        currentWeaponIndex = Mathf.Clamp(index, 0, WeaponCount - 1);
     }
 
     // ===== 照準 =====
@@ -135,6 +171,8 @@ public class WeaponSystem : NetworkBehaviour
 
     void UpdateWeaponUI()
     {
+        // CPU の持ち替えでプレイヤーの武器表示が変わらないようにする
+        if (isCpu) return;
         if (IsOnline && !IsOwner) return;
         if (slotHighlightBorders == null || slotHighlightBorders.Length == 0) return;
 
@@ -171,8 +209,8 @@ public class WeaponSystem : NetworkBehaviour
     // 弾を飛ばす向き
     Quaternion GetFireRotation()
     {
-        // マウス照準中は、狙った角度にそのまま飛ばす
-        if (aimAtMouse) return Quaternion.Euler(0f, 0f, currentAimAngle);
+        // マウス照準中(と CPU)は、狙った角度にそのまま飛ばす
+        if (aimAtMouse || isCpu) return Quaternion.Euler(0f, 0f, currentAimAngle);
 
         // 照準なしの場合は銃の見た目の向きに合わせる
         Quaternion rot = firePoint.rotation;

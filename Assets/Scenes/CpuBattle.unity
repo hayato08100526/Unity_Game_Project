@@ -1712,9 +1712,21 @@ PrefabInstance:
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 786224001528353611, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: soloRespawnPosition.x
+      value: -4
+      objectReference: {fileID: 0}
+    - target: {fileID: 786224001528353611, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: soloRespawnPosition.y
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1874839383645205430, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -4
+      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: m_LocalPosition.y
@@ -1899,6 +1911,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 4029152021056343111, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1129185327}
+    - targetCorrespondingSourceObject: {fileID: 4029152021056343111, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1129185337}
   m_SourcePrefab: {fileID: 100100000, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
 --- !u!114 &1129185319
 MonoBehaviour:
@@ -2002,6 +2017,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8b7167bad0a47ce42bdca81ccf48b1f7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!4 &1129185336 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+  m_PrefabInstance: {fileID: 1129185304}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1129185337
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 745423591}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ed15ff8fe010b60479dd089aa5caa9f3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  target: {fileID: 1129185336}
+  stageLeft: -10
+  stageRight: 10
+  edgeMargin: 1.5
+  preferredDistance: 5
+  distanceTolerance: 1.5
+  thinkInterval: 0.25
+  randomJumpChance: 0.1
+  fireIntervalMin: 0.5
+  fireIntervalMax: 1.2
+  fireRange: 14
+  aimError: 0.6
+  weaponChangeInterval: 6
 --- !u!1001 &1249526141
 PrefabInstance:
   m_ObjectHideFlags: 0

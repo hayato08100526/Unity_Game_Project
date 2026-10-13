@@ -7,6 +7,9 @@ public class PlayerController : NetworkBehaviour
     [Header("モード設定")]
     public bool isSoloMode = false;
 
+    [Tooltip("CPU が操作するときはオン(CpuController が自動でオンにする)")]
+    public bool isCpu = false;
+
     [Header("対戦設定")]
     public int playerID = 1; // 1Pなら1、2Pなら2をInspectorで設定(ローカル対戦用)
 
@@ -39,9 +42,16 @@ public class PlayerController : NetworkBehaviour
     private ContactFilter2D groundFilter;
     private KeyCode dashKey;
 
+    // CPU から渡される入力
+    private float cpuMove;
+    private bool cpuJumpRequest;
+
     // オンライン中か / このプレイヤーを操作してよいか
     private bool IsOnline => IsSpawned;
     private bool CanControl => !IsOnline || IsOwner;
+
+    // CPU が「地面にいるか」を知るため
+    public bool IsGrounded => isGrounded;
 
     void Awake()
     {
@@ -66,10 +76,17 @@ public class PlayerController : NetworkBehaviour
             Debug.LogWarning(gameObject.name + " のTagを 'Player' に設定してください！");
         }
 
-        if (isSoloMode && playerID == 2)
+        if (isSoloMode && playerID == 2 && !isCpu)
         {
             gameObject.SetActive(false);
         }
+    }
+
+    // CPU から毎フレーム呼ばれる
+    public void SetCpuInput(float move, bool jump)
+    {
+        cpuMove = Mathf.Clamp(move, -1f, 1f);
+        if (jump) cpuJumpRequest = true;
     }
 
     void Update()
@@ -90,6 +107,18 @@ public class PlayerController : NetworkBehaviour
 
     void GetPlayerInput()
     {
+        // CPU はキーボードを読まず、CpuController からの入力を使う
+        if (isCpu)
+        {
+            moveInput = cpuMove;
+            if (cpuJumpRequest)
+            {
+                HandleJump();
+                cpuJumpRequest = false;
+            }
+            return;
+        }
+
         // ソロとオンラインは全員1Pの操作
         if (isSoloMode || IsOnline)
         {
@@ -178,7 +207,7 @@ public class PlayerController : NetworkBehaviour
         {
             if (transform.position.y > collision.transform.position.y + 0.6f)
             {
-                string who = IsOnline ? "Client " + OwnerClientId : "P" + playerID;
+                string who = isCpu ? "CPU" : (IsOnline ? "Client " + OwnerClientId : "P" + playerID);
                 Debug.Log(who + " の踏みつけ成功！");
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * 0.8f);
             }
