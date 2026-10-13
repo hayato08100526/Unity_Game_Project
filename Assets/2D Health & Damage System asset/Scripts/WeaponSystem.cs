@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UI;
 using Unity.Netcode;
 
@@ -50,6 +51,23 @@ public class WeaponSystem : NetworkBehaviour
     public float armBrokenSwitchTime = 0.4f;
     [Tooltip("腕が壊れているときの連射間隔の倍率")]
     public float armBrokenFireIntervalMul = 1.3f;
+
+    [Header("ROUTE(線を描く武器)")]
+    [Tooltip("描ける線の最大の長さ(マス)")]
+    public float maxRouteLength = 12f;
+    [Tooltip("線の点を置く間隔(マス)")]
+    public float routePointSpacing = 0.3f;
+    [Tooltip("線を描いている間の移動速度の倍率")]
+    public float routeDrawSpeedMul = 0.5f;
+    public Color routeLineColor = new Color(0.31f, 0.89f, 0.94f, 0.7f);
+
+    private bool drawingRoute;
+    private readonly List<Vector3> routePoints = new List<Vector3>();
+    private float routeLength;
+    private LineRenderer routeLine;
+    private PlayerController owningController;
+
+    public bool IsDrawingRoute => drawingRoute;
 
     private HealthSystem health;
     private bool ArmBroken => health != null && health.ArmBroken;
@@ -153,6 +171,7 @@ public class WeaponSystem : NetworkBehaviour
     void Awake()
     {
         var pc = GetComponentInParent<PlayerController>();
+        owningController = pc;
         body = pc != null ? pc.transform : transform.root;
         health = GetComponentInParent<HealthSystem>();
         EnsureArrays();
@@ -192,8 +211,131 @@ public class WeaponSystem : NetworkBehaviour
             if (Input.GetKeyDown(KeyCode.Alpha1 + k)) SetWeapon(k);
         }
 
-        // 左クリックを押している間、連射間隔ごとに撃つ
-        if (Input.GetMouseButton(0)) ShootCurrentWeapon();
+        if (IsRouteWeapon(currentWeaponIndex))
+        {
+            // ROUTE:押している間に線を描いて、離したら撃つ
+            HandleRouteInput();
+        }
+        else
+        {
+            CancelRoute();
+            // 左クリックを押している間、連射間隔ごとに撃つ
+            if (Input.GetMouseButton(0)) ShootCurrentWeapon();
+        }
+    }
+
+    void OnDisable()
+    {
+        CancelRoute();
+    }
+
+    // ===== ROUTE(線を描いて撃つ) =====
+
+    bool IsRouteWeapon(int i)
+    {
+        return i >= 0 && i < WeaponCount && bulletPrefabs[i] != null
+               && bulletPrefabs[i].GetComponent<RouteBullet>() != null;
+    }
+
+    void HandleRouteInput()
+    {
+        // 押した瞬間:描き始める
+        if (Input.GetMouseButtonDown(0) && CanShoot())
+        {
+            drawingRoute = true;
+            routePoints.Clear();
+            routeLength = 0f;
+            routePoints.Add(MouseWorld());
+            SetSpeedMul(routeDrawSpeedMul);
+        }
+
+        if (!drawingRoute) return;
+
+        // 押している間:マウスの動きに合わせて点を足す(最大の長さまで)
+        if (Input.GetMouseButton(0))
+        {
+            Vector3 m = MouseWorld();
+            Vector3 last = routePoints[routePoints.Count - 1];
+            float d = Vector3.Distance(last, m);
+            if (d >= routePointSpacing && routeLength < maxRouteLength)
+            {
+                float allow = Mathf.Min(d, maxRouteLength - routeLength);
+                routePoints.Add(last + (m - last).normalized * allow);
+                routeLength += allow;
+            }
+            UpdateRouteLine();
+        }
+
+        // 離した瞬間:撃つ
+        if (Input.GetMouseButtonUp(0))
+        {
+            var pts = new List<Vector3>(routePoints);
+            CancelRoute();
+            FireRoute(pts);
+        }
+    }
+
+    void FireRoute(List<Vector3> points)
+    {
+        if (firePoint == null || !CanShoot()) return;
+
+        int i = currentWeaponIndex;
+        ApplyShotCost(i);
+
+        GameObject fired = Instantiate(bulletPrefabs[i], firePoint.position, Quaternion.Euler(0f, 0f, currentAimAngle));
+        IgnoreShooter(fired);
+        fired.SendMessage("SetOwner", body, SendMessageOptions.DontRequireReceiver);
+        fired.SendMessage("SetPath", points.ToArray(), SendMessageOptions.DontRequireReceiver);
+    }
+
+    void CancelRoute()
+    {
+        if (!drawingRoute && (routeLine == null || !routeLine.enabled)) return;
+        drawingRoute = false;
+        if (routeLine != null) routeLine.enabled = false;
+        SetSpeedMul(1f);
+    }
+
+    void SetSpeedMul(float value)
+    {
+        if (owningController != null) owningController.externalSpeedMul = value;
+    }
+
+    Vector3 MouseWorld()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return body.position;
+        Vector3 screenPos = Input.mousePosition;
+        screenPos.z = Mathf.Abs(cam.transform.position.z);
+        Vector3 w = cam.ScreenToWorldPoint(screenPos);
+        w.z = 0f;
+        return w;
+    }
+
+    void UpdateRouteLine()
+    {
+        if (routeLine == null)
+        {
+            var go = new GameObject("RouteLine");
+            routeLine = go.AddComponent<LineRenderer>();
+            routeLine.useWorldSpace = true;
+            routeLine.startWidth = 0.07f;
+            routeLine.endWidth = 0.07f;
+            routeLine.numCapVertices = 2;
+            routeLine.sortingOrder = 50;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+            if (shader != null) routeLine.material = new Material(shader);
+
+            routeLine.startColor = routeLineColor;
+            routeLine.endColor = routeLineColor;
+        }
+
+        routeLine.enabled = true;
+        routeLine.positionCount = routePoints.Count + 1;
+        routeLine.SetPosition(0, firePoint != null ? firePoint.position : body.position);
+        for (int k = 0; k < routePoints.Count; k++) routeLine.SetPosition(k + 1, routePoints[k]);
     }
 
     void UpdateHeat()
@@ -230,6 +372,20 @@ public class WeaponSystem : NetworkBehaviour
     // 今の武器で撃つ
     public void CpuShoot()
     {
+        ShootCurrentWeapon();
+    }
+
+    // 相手の位置を指定して撃つ(ROUTE のときは、相手の上を回り込む線を自動で描く)
+    public void CpuShootAt(Vector2 target)
+    {
+        if (IsRouteWeapon(currentWeaponIndex) && firePoint != null)
+        {
+            Vector2 start = firePoint.position;
+            Vector2 apex = new Vector2((start.x + target.x) / 2f, Mathf.Max(start.y, target.y) + 3f);
+            Vector2 after = target + (target - apex).normalized * 2f;
+            FireRoute(new List<Vector3> { apex, target, after });
+            return;
+        }
         ShootCurrentWeapon();
     }
 
@@ -292,6 +448,7 @@ public class WeaponSystem : NetworkBehaviour
         index = Mathf.Clamp(index, 0, WeaponCount - 1);
         if (index == currentWeaponIndex) return;
 
+        CancelRoute();
         currentWeaponIndex = index;
         switchEndTime = Time.time + CurrentSwitchTime; // 持ち替え中は撃てない
         UpdateWeaponUI();
@@ -341,6 +498,23 @@ public class WeaponSystem : NetworkBehaviour
         return Time.time >= nextShotTime[i];
     }
 
+    // 撃つたびの熱と連射間隔(100 でオーバーヒート)
+    void ApplyShotCost(int i)
+    {
+        heat[i] += HeatPerShot(i);
+        nextShotTime[i] = Time.time + FireInterval(i) * (ArmBroken ? armBrokenFireIntervalMul : 1f);
+
+        if (heat[i] >= 100f)
+        {
+            heat[i] = 100f;
+            lockedUntil[i] = Time.time + overheatLockTime;
+
+            // 頭上に OVERHEAT を出す
+            if (MatchManager.Instance != null)
+                MatchManager.Instance.ShowPopup(body, "OVERHEAT", new Color32(0xFF, 0x5A, 0x5A, 0xFF), false);
+        }
+    }
+
     void ShootCurrentWeapon()
     {
         if (firePoint == null) return;
@@ -351,20 +525,10 @@ public class WeaponSystem : NetworkBehaviour
         Quaternion rot = GetFireRotation();
 
         // 熱と連射間隔
-        heat[i] += HeatPerShot(i);
-        nextShotTime[i] = Time.time + FireInterval(i) * (ArmBroken ? armBrokenFireIntervalMul : 1f);
+        ApplyShotCost(i);
 
         // 頭が壊れていると狙いがブレる
         if (HeadBroken) rot *= Quaternion.Euler(0f, 0f, Random.Range(-headBrokenAimError, headBrokenAimError));
-        if (heat[i] >= 100f)
-        {
-            heat[i] = 100f;
-            lockedUntil[i] = Time.time + overheatLockTime;
-
-            // 頭上に OVERHEAT を出す
-            if (MatchManager.Instance != null)
-                MatchManager.Instance.ShowPopup(body, "OVERHEAT", new Color32(0xFF, 0x5A, 0x5A, 0xFF), false);
-        }
 
         // 自分の画面にはすぐ出す
         SpawnBullet(i, pos, rot);

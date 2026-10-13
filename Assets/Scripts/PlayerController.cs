@@ -38,6 +38,9 @@ public class PlayerController : NetworkBehaviour
     [Header("ó‘ÔŠm”F")]
     public PlayerState currentState = PlayerState.Idle;
 
+    // •Ší(ROUTE ‚Åü‚ğ•`‚¢‚Ä‚¢‚éŠÔ‚È‚Ç)‚©‚ç•Ï‚¦‚ç‚ê‚éˆÚ“®‘¬“x‚Ì”{—¦
+    [HideInInspector] public float externalSpeedMul = 1f;
+
     private Rigidbody2D rb;
     private HealthSystem health;
     private float moveInput;
@@ -186,7 +189,7 @@ public class PlayerController : NetworkBehaviour
         if (!CanControl) return;
 
         if (isDashing) return;
-        rb.linearVelocity = new Vector2(moveInput * moveSpeed * SpeedMul, rb.linearVelocity.y);
+        rb.linearVelocity = new Vector2(moveInput * moveSpeed * SpeedMul * externalSpeedMul, rb.linearVelocity.y);
     }
 
     void Jump()

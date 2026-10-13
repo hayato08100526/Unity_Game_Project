@@ -22,6 +22,9 @@ public class MatchManager : MonoBehaviour
     [Header("リスポーン地点(最上段の足場の上)")]
     public Vector2 respawnPoint = new Vector2(0f, 8.5f);
 
+    [Header("タイトルに戻る")]
+    public string titleSceneName = "MainMenu";
+
     [Header("画面表示")]
     [Tooltip("HUD に使うフォント(Fonts フォルダの Oxanium-Bold など .ttf のもの)。空なら標準のフォント")]
     public Font hudFont;
@@ -207,6 +210,11 @@ public class MatchManager : MonoBehaviour
             case State.Result:
                 if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // 同じ強さで再戦
                 else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // 強さを選び直す
+                else if (Input.GetKeyDown(KeyCode.T) && Application.CanStreamedLevelBeLoaded(titleSceneName))
+                {
+                    Time.timeScale = 1f;
+                    SceneManager.LoadScene(titleSceneName); // タイトルに戻る
+                }
                 break;
         }
     }
@@ -383,7 +391,7 @@ public class MatchManager : MonoBehaviour
             bigStyle.normal.textColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
             GUI.Label(center, resultText, bigStyle);
             midStyle.normal.textColor = white;
-            GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "R : REMATCH    D : CHANGE LEVEL", midStyle);
+            GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "R : REMATCH    D : CHANGE LEVEL    T : TITLE", midStyle);
         }
     }
 
@@ -529,7 +537,9 @@ public class MatchManager : MonoBehaviour
         Color red = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
 
         int n = weapon.WeaponCount;
-        float slotW = unit * 3.1f;
+        // 左右のパネルに重ならない幅に収める(武器が多いときは少し細くする)
+        float available = Screen.width - unit * 8.6f * 2f;
+        float slotW = Mathf.Min(unit * 3.1f, (available - (n - 1) * unit * 0.2f) / n);
         float slotH = unit * 1.3f;
         float gap = unit * 0.2f;
         float totalW = n * slotW + (n - 1) * gap;

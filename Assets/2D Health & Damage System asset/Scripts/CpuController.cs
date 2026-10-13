@@ -160,7 +160,7 @@ public class CpuController : MonoBehaviour
             fireTimer = Random.Range(fireIntervalMin, fireIntervalMax);
             if (weapon != null && targetAlive && Vector2.Distance(me, tp) <= fireRange)
             {
-                weapon.CpuShoot();
+                weapon.CpuShootAt(tp + Vector2.up * 0.5f);
                 aimOffset = Random.insideUnitCircle * aimError;
             }
         }

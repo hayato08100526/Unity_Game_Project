@@ -886,6 +886,18 @@ PrefabInstance:
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: bulletPrefabs.Array.size
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: 'bulletPrefabs.Array.data[3]'
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: 3a821dab6f45ef140b236480e6bf6824, type: 3}
+    - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: 'bulletPrefabs.Array.data[4]'
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: 18f18a0050c1fe846849d54197e65e39, type: 3}
     - target: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: m_LocalPosition.x
       value: 4
@@ -1294,6 +1306,7 @@ MonoBehaviour:
   respawnDelay: 1.5
   invincibleTime: 2
   respawnPoint: {x: 0, y: 8.5}
+  titleSceneName: MainMenu
   hudFont: {fileID: 12800000, guid: 6b63c1707a37e1a4cb3a549d680d2ad3, type: 3}
   blastLeft: -16
   blastRight: 16
@@ -2200,7 +2213,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: bulletPrefabs.Array.size
-      value: 5
+      value: 6
       objectReference: {fileID: 0}
     - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: 'bulletPrefabs.Array.data[3]'
@@ -2210,6 +2223,10 @@ PrefabInstance:
       propertyPath: 'bulletPrefabs.Array.data[4]'
       value: 
       objectReference: {fileID: 2915996726960370181, guid: 3a821dab6f45ef140b236480e6bf6824, type: 3}
+    - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: 'bulletPrefabs.Array.data[5]'
+      value: 
+      objectReference: {fileID: 2915996726960370181, guid: 18f18a0050c1fe846849d54197e65e39, type: 3}
     - target: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: m_LocalPosition.x
       value: 4
