@@ -84,6 +84,9 @@ public class GrenadeBullet : MonoBehaviour
         Vector2 center = transform.position;
         var alreadyHit = new HashSet<HealthSystem>();
 
+        // ”š”­‚Å‰æ–Ê‚ð—h‚ç‚·
+        CameraFollow.Shake(0.25f, 0.2f);
+
         foreach (Collider2D col in Physics2D.OverlapCircleAll(center, radius))
         {
             HealthSystem h = col.GetComponentInParent<HealthSystem>();

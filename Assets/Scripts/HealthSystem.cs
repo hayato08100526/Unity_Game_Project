@@ -50,6 +50,11 @@ public class HealthSystem : NetworkBehaviour
     private bool wasInvincible;
     private bool isDead;
 
+    // 被弾したときに一瞬赤く光る
+    private Color[] originalColors;
+    private float flashUntil = -1f;
+    private bool lastHitWasHead;
+
     // オンライン用のHP:書き換えられるのはHostだけ、全員に自動同期される
     private readonly NetworkVariable<int> netHealth = new NetworkVariable<int>(
         3,
@@ -65,6 +70,8 @@ public class HealthSystem : NetworkBehaviour
         rb = GetComponent<Rigidbody2D>();
         bodyCollider = GetComponent<Collider2D>();
         renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        originalColors = new Color[renderers.Length];
+        for (int i = 0; i < renderers.Length; i++) originalColors[i] = renderers[i].color;
         ResetParts();
     }
 
@@ -94,6 +101,14 @@ public class HealthSystem : NetworkBehaviour
         {
             hpText = GameObject.Find(hpTextObjectName);
             if (hpText != null) UpdateHPUI();
+        }
+
+        // 赤く光らせたあと、元の色に戻す
+        if (flashUntil > 0f && Time.time >= flashUntil)
+        {
+            flashUntil = -1f;
+            for (int i = 0; i < renderers.Length; i++)
+                if (renderers[i] != null) renderers[i].color = originalColors[i];
         }
 
         // 無敵中は点滅させる
@@ -139,7 +154,9 @@ public class HealthSystem : NetworkBehaviour
         if (part == Part.Head) damage = Mathf.RoundToInt(damage * headDamageMultiplier);
 
         DamagePart(part, damage);
+        lastHitWasHead = part == Part.Head;
         TakeDamage(damage, knockback);
+        lastHitWasHead = false;
     }
 
     // 今までどおりの呼び方(位置なし = 胴体扱い)
@@ -156,6 +173,9 @@ public class HealthSystem : NetworkBehaviour
             float lost = 1f - (float)currentHealth / maxHealth;
             ApplyKnockback(knockback * (1f + lost * knockbackGrowth));
 
+            // 手ごたえ:赤く光る、画面が揺れる、ダメージの数字
+            HitFeedback(damage);
+
             // CPU 対戦では KO の処理は MatchManager が行う
             if (currentHealth <= 0 && MatchManager.Instance == null) SetDeadVisual(true);
             return;
@@ -166,6 +186,28 @@ public class HealthSystem : NetworkBehaviour
 
         netHealth.Value = Mathf.Max(0, netHealth.Value - damage);
         KnockbackRpc(knockback);
+    }
+
+    void HitFeedback(int damage)
+    {
+        // 赤く光る
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null) continue;
+            Color c = originalColors[i];
+            renderers[i].color = new Color(1f, 0.35f, 0.35f, c.a);
+        }
+        flashUntil = Time.time + 0.08f;
+
+        // 画面が揺れる(ダメージが大きいほど強く)
+        CameraFollow.Shake(0.05f + damage * 0.008f, 0.15f);
+
+        // ダメージの数字(頭に当たったときはオレンジ)
+        if (MatchManager.Instance != null)
+        {
+            Color c = lastHitWasHead ? new Color32(0xFF, 0x8A, 0x3D, 0xFF) : new Color32(0xE6, 0xED, 0xF3, 0xFF);
+            MatchManager.Instance.ShowPopup(transform, "-" + damage, c, true);
+        }
     }
 
     // 当たった高さで部位を決める(上の方=頭、下の方=脚、真ん中の前側=腕)

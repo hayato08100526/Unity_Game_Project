@@ -360,6 +360,10 @@ public class WeaponSystem : NetworkBehaviour
         {
             heat[i] = 100f;
             lockedUntil[i] = Time.time + overheatLockTime;
+
+            // 頭上に OVERHEAT を出す
+            if (MatchManager.Instance != null)
+                MatchManager.Instance.ShowPopup(body, "OVERHEAT", new Color32(0xFF, 0x5A, 0x5A, 0xFF), false);
         }
 
         // 自分の画面にはすぐ出す

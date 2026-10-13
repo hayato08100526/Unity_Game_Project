@@ -63,6 +63,9 @@ public class MatchManager : MonoBehaviour
         public Transform who;
         public string text;
         public float startTime;
+        public Color color;
+        public float offsetX;
+        public bool small;
     }
     private readonly System.Collections.Generic.List<Popup> popups = new System.Collections.Generic.List<Popup>();
     private const float PopupDuration = 1.4f;
@@ -84,7 +87,22 @@ public class MatchManager : MonoBehaviour
         string text = part == HealthSystem.Part.Head ? "HEAD BROKEN"
                     : part == HealthSystem.Part.Arm ? "ARM BROKEN"
                     : "LEG BROKEN";
-        popups.Add(new Popup { who = who.transform, text = text, startTime = Time.time });
+        ShowPopup(who.transform, text, new Color32(0xFF, 0x8A, 0x3D, 0xFF), false);
+    }
+
+    // 頭上に文字を出す(ダメージの数字は small = true で小さく、少し横にずらす)
+    public void ShowPopup(Transform who, string text, Color color, bool small)
+    {
+        if (who == null) return;
+        popups.Add(new Popup
+        {
+            who = who,
+            text = text,
+            startTime = Time.time,
+            color = color,
+            small = small,
+            offsetX = small ? Random.Range(-0.5f, 0.5f) : 0f
+        });
     }
 
     void Start()
@@ -215,6 +233,10 @@ public class MatchManager : MonoBehaviour
 
     void KnockOut(HealthSystem fighter, bool isPlayer)
     {
+        // KO の手ごたえ:大きく揺れて「KO!」
+        CameraFollow.Shake(0.5f, 0.35f);
+        ShowPopup(fighter.transform, "KO!", isPlayer ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF), false);
+
         fighter.KnockOut();
 
         if (isPlayer)
@@ -552,8 +574,8 @@ public class MatchManager : MonoBehaviour
         Camera cam = Camera.main;
         if (cam == null) return;
 
-        Color hot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
         smallStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
 
         for (int i = popups.Count - 1; i >= 0; i--)
         {
@@ -566,21 +588,24 @@ public class MatchManager : MonoBehaviour
             }
 
             float u = age / PopupDuration;
-            Vector3 screen = cam.WorldToScreenPoint(p.who.position + Vector3.up * 1.6f);
+            float height = p.small ? 1.2f : 1.6f;
+            Vector3 screen = cam.WorldToScreenPoint(p.who.position + new Vector3(p.offsetX, height, 0f));
             if (screen.z < 0f) continue;
 
             float sx = screen.x;
             float sy = Screen.height - screen.y - u * unit * 1.2f; // 上に浮かぶ
             Rect r = new Rect(sx - unit * 5f, sy - unit * 0.5f, unit * 10f, unit);
+            GUIStyle style = p.small ? tinyStyle : smallStyle;
 
             // 読みやすいように、暗い影を少しずらして重ねる
-            smallStyle.normal.textColor = new Color(0f, 0f, 0f, 0.7f * (1f - u * u));
-            GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), p.text, smallStyle);
-            smallStyle.normal.textColor = new Color(hot.r, hot.g, hot.b, 1f - u * u);
-            GUI.Label(r, p.text, smallStyle);
+            style.normal.textColor = new Color(0f, 0f, 0f, 0.7f * (1f - u * u));
+            GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), p.text, style);
+            style.normal.textColor = new Color(p.color.r, p.color.g, p.color.b, 1f - u * u);
+            GUI.Label(r, p.text, style);
         }
 
         smallStyle.alignment = TextAnchor.MiddleLeft;
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
     void Fill(Rect r, Color c)

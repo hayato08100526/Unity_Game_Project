@@ -30,9 +30,34 @@ public class CameraFollow : MonoBehaviour
 
     private Camera cam;
 
+    // ‰æ–Ê‚Ì—h‚ê
+    private static CameraFollow instance;
+    private Vector3 basePosition;
+    private float shakeAmount;
+    private float shakeTimer;
+    private float shakeDuration;
+
     void Awake()
     {
         cam = GetComponent<Camera>();
+        instance = this;
+        basePosition = transform.position;
+    }
+
+    void OnDestroy()
+    {
+        if (instance == this) instance = null;
+    }
+
+    // ‚Ç‚±‚©‚ç‚Å‚àŒÄ‚×‚é:‰æ–Ê‚ğ—h‚ç‚·(‹­‚³, ŠÔ)
+    public static void Shake(float amount, float duration)
+    {
+        if (instance == null) return;
+        // ‚·‚Å‚É‹­‚­—h‚ê‚Ä‚¢‚é‚Æ‚«‚ÍAã‚¢—h‚ê‚Åã‘‚«‚µ‚È‚¢
+        if (instance.shakeTimer > 0f && instance.shakeAmount > amount) return;
+        instance.shakeAmount = amount;
+        instance.shakeDuration = duration;
+        instance.shakeTimer = duration;
     }
 
     void Start()
@@ -68,7 +93,11 @@ public class CameraFollow : MonoBehaviour
             }
         }
 
-        if (!any) return;
+        if (!any)
+        {
+            ApplyShake();
+            return;
+        }
 
         // 2l‚Ì^‚ñ’†(‰æ–Ê‚©‚ç‚Í‚İo‚µ‚·‚¬‚È‚¢‚æ‚¤‚É§ŒÀ)
         Vector2 center = (Vector2)b.center + offset;
@@ -82,9 +111,24 @@ public class CameraFollow : MonoBehaviour
 
         // ‚È‚ß‚ç‚©‚É‹ß‚Ã‚¯‚é
         float k = 1f - Mathf.Exp(-smooth * Time.deltaTime);
-        Vector3 p = transform.position;
-        transform.position = new Vector3(Mathf.Lerp(p.x, center.x, k), Mathf.Lerp(p.y, center.y, k), p.z);
+        Vector3 p = basePosition;
+        basePosition = new Vector3(Mathf.Lerp(p.x, center.x, k), Mathf.Lerp(p.y, center.y, k), p.z);
         cam.orthographicSize = Mathf.Lerp(cam.orthographicSize, size, k);
+
+        ApplyShake();
+    }
+
+    // ’Ç‚¢‚©‚¯‚½ˆÊ’u‚ÉA—h‚ê‚Ì•ª‚¾‚¯‚¸‚ç‚µ‚Ä’u‚­
+    void ApplyShake()
+    {
+        Vector3 offset = Vector3.zero;
+        if (shakeTimer > 0f)
+        {
+            shakeTimer -= Time.unscaledDeltaTime;
+            float strength = shakeAmount * Mathf.Clamp01(shakeTimer / Mathf.Max(0.01f, shakeDuration));
+            offset = (Vector3)(Random.insideUnitCircle * strength);
+        }
+        transform.position = basePosition + offset;
     }
 
     // KO ‚³‚ê‚ÄÁ‚¦‚Ä‚¢‚éŠÔ‚Í’Ç‚¢‚©‚¯‚È‚¢
