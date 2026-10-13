@@ -5099,7 +5099,7 @@ MonoBehaviour:
   waitingRow: {fileID: 885607073}
   startGameButton: {fileID: 1999251131}
   waitingHostText: {fileID: 68123897}
-  gameSceneName: SoloScene
+  gameSceneName: OnlineStage
   maxPlayers: 2
   hostColor: {r: 0.30980393, g: 0.8901961, b: 0.9411765, a: 1}
   clientColor: {r: 1, g: 0.70980394, b: 0.2784314, a: 1}
