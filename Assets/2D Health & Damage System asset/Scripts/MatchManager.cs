@@ -29,6 +29,11 @@ public class MatchManager : MonoBehaviour
     [Tooltip("HUD に使うフォント(Fonts フォルダの Oxanium-Bold など .ttf のもの)。空なら標準のフォント")]
     public Font hudFont;
 
+    [Header("頭の上のマーカー")]
+    [Tooltip("ロボットの足元(中心)から、マーカーを出す高さ")]
+    public float markerHeight = 1.6f;
+    public bool showMarkers = true;
+
     [Header("場外ライン(ここを越えたらKO)")]
     public float blastLeft = -16f;
     public float blastRight = 16f;
@@ -411,6 +416,13 @@ public class MatchManager : MonoBehaviour
         // 自分の武器と熱ゲージ(画面下の中央)
         DrawWeaponSlots(playerWeapon, unit, cyan, white);
 
+        // 頭の上のマーカー(画面の外にいるときは、ふちに矢印)
+        if (showMarkers && state != State.SelectDifficulty)
+        {
+            DrawMarker(player, playerWaiting, "P1", cyan, new Color32(0x03, 0x14, 0x17, 0xFF), unit);
+            DrawMarker(cpu, cpuWaiting, "CPU", amber, new Color32(0x1F, 0x13, 0x00, 0xFF), unit);
+        }
+
         // 部位が壊れたときの文字(頭上に出して、上に浮かびながら消える)
         DrawPopups(unit);
 
@@ -659,6 +671,66 @@ public class MatchManager : MonoBehaviour
                 : Mathf.Clamp01(heat / 100f);
             Fill(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), barColor);
         }
+    }
+
+    void DrawMarker(HealthSystem fighter, bool waiting, string label, Color accent, Color textColor, float unit)
+    {
+        if (fighter == null || waiting) return;
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        Vector3 sp = cam.WorldToScreenPoint(fighter.transform.position + Vector3.up * markerHeight);
+        if (sp.z < 0f) return;
+        Vector2 p = new Vector2(sp.x, Screen.height - sp.y); // GUI は上が 0
+
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = textColor;
+        float w = unit * (label.Length > 2 ? 1.5f : 1.1f), h = unit * 0.6f;
+        float edge = unit * 0.8f;
+
+        // 画面の中:頭の上にタグと ▼
+        bool inside = p.x > edge && p.x < Screen.width - edge && p.y > edge && p.y < Screen.height - edge;
+        if (inside)
+        {
+            float bob = Mathf.Sin(Time.time * 4f) * unit * 0.06f;
+            Rect tag = new Rect(p.x - w / 2f, p.y - h - unit * 0.35f + bob, w, h);
+            Fill(tag, accent);
+            GUI.Label(tag, label, tinyStyle);
+            float tri = unit * 0.32f;
+            for (int i = 0; i < 4; i++)
+            {
+                float tw = tri * (1f - i / 4f);
+                Fill(new Rect(p.x - tw / 2f, tag.yMax + i * tri / 4f + bob, tw, tri / 4f + 0.5f), accent);
+            }
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+            return;
+        }
+
+        // 画面の外:ふちに寄せて、その方向へ矢印
+        Vector2 center = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        Vector2 dir = (p - center).normalized;
+        Vector2 q = new Vector2(Mathf.Clamp(p.x, edge, Screen.width - edge), Mathf.Clamp(p.y, edge, Screen.height - edge));
+
+        float pulse = 0.7f + 0.3f * Mathf.Sin(Time.time * 8f);
+        Rect box = new Rect(q.x - w / 2f, q.y - h / 2f, w, h);
+        box.x = Mathf.Clamp(box.x, unit * 0.2f, Screen.width - w - unit * 0.2f);
+        box.y = Mathf.Clamp(box.y, unit * 0.2f, Screen.height - h - unit * 0.2f);
+        Fill(box, new Color(accent.r, accent.g, accent.b, pulse));
+        GUI.Label(box, label, tinyStyle);
+
+        // 矢印(タグの外側、キャラのいる方向)
+        Matrix4x4 m = GUI.matrix;
+        float ang = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        Vector2 tip = box.center + dir * (Mathf.Max(w, h) * 0.5f + unit * 0.35f);
+        GUIUtility.RotateAroundPivot(ang, tip);
+        float a = unit * 0.36f;
+        for (int i = 0; i < 4; i++)
+        {
+            float th = a * (1f - i / 4f);
+            Fill(new Rect(tip.x - a + i * a / 4f, tip.y - th / 2f, a / 4f + 0.5f, th), accent);
+        }
+        GUI.matrix = m;
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
     void DrawPopups(float unit)
