@@ -219,8 +219,9 @@ public class WeaponSystem : NetworkBehaviour
         else
         {
             CancelRoute();
-            // 左クリックを押している間、連射間隔ごとに撃つ
-            if (Input.GetMouseButton(0)) ShootCurrentWeapon();
+            // 押すたびに1発(autoFire をオンにすると、押しっぱなしで連射)
+            bool fire = autoFire ? FireHeld() : FireDown();
+            if (fire) ShootCurrentWeapon();
         }
     }
 
@@ -231,6 +232,28 @@ public class WeaponSystem : NetworkBehaviour
 
     // ===== ROUTE(線を描いて撃つ) =====
 
+    // 撃つボタン:マウスの左クリック、または Enter キー(テンキーの Enter も可)
+    [Header("撃ち方")]
+    [Tooltip("オン:押しっぱなしで連射 / オフ:押すたびに1発")]
+    public bool autoFire = false;
+
+    bool FireHeld()
+    {
+        return Input.GetMouseButton(0) || Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.KeypadEnter);
+    }
+
+    bool FireDown()
+    {
+        return Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter);
+    }
+
+    bool FireUp()
+    {
+        // どちらかを離して、もう何も押していなければ「離した」とみなす
+        bool released = Input.GetMouseButtonUp(0) || Input.GetKeyUp(KeyCode.Return) || Input.GetKeyUp(KeyCode.KeypadEnter);
+        return released && !FireHeld();
+    }
+
     bool IsRouteWeapon(int i)
     {
         return i >= 0 && i < WeaponCount && bulletPrefabs[i] != null
@@ -240,7 +263,7 @@ public class WeaponSystem : NetworkBehaviour
     void HandleRouteInput()
     {
         // 押した瞬間:描き始める
-        if (Input.GetMouseButtonDown(0) && CanShoot())
+        if (FireDown() && CanShoot())
         {
             drawingRoute = true;
             routePoints.Clear();
@@ -252,7 +275,7 @@ public class WeaponSystem : NetworkBehaviour
         if (!drawingRoute) return;
 
         // 押している間:マウスの動きに合わせて点を足す(最大の長さまで)
-        if (Input.GetMouseButton(0))
+        if (FireHeld())
         {
             Vector3 m = MouseWorld();
             Vector3 last = routePoints[routePoints.Count - 1];
@@ -267,7 +290,7 @@ public class WeaponSystem : NetworkBehaviour
         }
 
         // 離した瞬間:撃つ
-        if (Input.GetMouseButtonUp(0))
+        if (FireUp())
         {
             var pts = new List<Vector3>(routePoints);
             CancelRoute();

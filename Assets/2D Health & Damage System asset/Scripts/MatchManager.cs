@@ -38,6 +38,9 @@ public class MatchManager : MonoBehaviour
     private enum State { SelectDifficulty, Countdown, Playing, Result }
     private State state = State.SelectDifficulty;
 
+    // ポーズ中か(Esc で切り替え)
+    private bool paused = false;
+
     // シーンを読み込み直しても覚えておく(再戦用)
     private static int savedDifficulty = -1;
     private static bool skipSelect = false;
@@ -173,6 +176,22 @@ public class MatchManager : MonoBehaviour
 
     void Update()
     {
+        // ===== ポーズ =====
+        if (state == State.Countdown || state == State.Playing)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))
+            {
+                if (paused) Resume(); else Pause();
+                return;
+            }
+            if (paused)
+            {
+                if (Input.GetKeyDown(KeyCode.R)) Reload(true);
+                else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
+                return; // ポーズ中は試合を進めない
+            }
+        }
+
         switch (state)
         {
             case State.SelectDifficulty:
@@ -210,17 +229,42 @@ public class MatchManager : MonoBehaviour
             case State.Result:
                 if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // 同じ強さで再戦
                 else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // 強さを選び直す
-                else if (Input.GetKeyDown(KeyCode.T) && Application.CanStreamedLevelBeLoaded(titleSceneName))
-                {
-                    Time.timeScale = 1f;
-                    SceneManager.LoadScene(titleSceneName); // タイトルに戻る
-                }
+                else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
                 break;
         }
     }
 
+    void Pause()
+    {
+        paused = true;
+        Time.timeScale = 0f;
+        SetControl(player, false);
+        SetControl(cpu, false);
+    }
+
+    void Resume()
+    {
+        paused = false;
+        Time.timeScale = 1f;
+        // カウントダウン中に止めたときは、まだ動けないままにする
+        if (state == State.Playing)
+        {
+            SetControl(player, true);
+            SetControl(cpu, true);
+        }
+    }
+
+    void GoToTitle()
+    {
+        if (!Application.CanStreamedLevelBeLoaded(titleSceneName)) return;
+        paused = false;
+        Time.timeScale = 1f;
+        SceneManager.LoadScene(titleSceneName);
+    }
+
     void Reload(bool sameDifficulty)
     {
+        paused = false;
         skipSelect = sameDifficulty;
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
@@ -392,6 +436,44 @@ public class MatchManager : MonoBehaviour
             GUI.Label(center, resultText, bigStyle);
             midStyle.normal.textColor = white;
             GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "R : REMATCH    D : CHANGE LEVEL    T : TITLE", midStyle);
+        }
+
+        // ポーズ画面(一番上に重ねる)
+        if (paused) DrawPauseMenu(unit, cyan, white);
+    }
+
+    void DrawPauseMenu(float unit, Color accent, Color white)
+    {
+        Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
+        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
+
+        // 画面全体を暗くする
+        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xC8));
+
+        bigStyle.normal.textColor = white;
+        GUI.Label(new Rect(0, Screen.height * 0.16f, Screen.width, unit * 3f), "PAUSE", bigStyle);
+
+        string[] labels = { "RESUME   [ESC]", "RETRY   [R]", "TITLE   [T]" };
+        float w = unit * 9f, h = unit * 1.6f, gap = unit * 0.4f;
+        float x = (Screen.width - w) / 2f;
+        float y0 = Screen.height * 0.42f;
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            Rect r = new Rect(x, y0 + i * (h + gap), w, h);
+            bool hover = r.Contains(Event.current.mousePosition);
+
+            Fill(r, card);
+            Border(r, hover ? accent : line, hover ? 2f : 1f);
+            midStyle.normal.textColor = hover ? accent : white;
+            GUI.Label(r, labels[i], midStyle);
+
+            if (GUI.Button(r, GUIContent.none, GUIStyle.none))
+            {
+                if (i == 0) Resume();
+                else if (i == 1) Reload(true);
+                else GoToTitle();
+            }
         }
     }
 
