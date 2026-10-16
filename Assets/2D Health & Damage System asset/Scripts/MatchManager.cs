@@ -394,27 +394,15 @@ public class MatchManager : MonoBehaviour
         Color amber = new Color32(0xFF, 0xB5, 0x47, 0xFF);
         Color white = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-        // タイマー(残り30秒でアンバーに)
-        int m = Mathf.FloorToInt(timeLeft / 60f);
-        int s = Mathf.FloorToInt(timeLeft % 60f);
-        Rect timerRect = new Rect((Screen.width - unit * 3.4f) / 2f, unit * 0.4f, unit * 3.4f, unit * 1.3f);
-        Fill(timerRect, new Color32(0x0D, 0x11, 0x17, 0xE0));
-        Border(timerRect, new Color32(0x1E, 0x27, 0x33, 0xFF), 1f);
-        midStyle.normal.textColor = (state == State.Playing && timeLeft <= 30f) ? amber : white;
-        GUI.Label(timerRect, m + ":" + s.ToString("00"), midStyle);
+        // ===== HUD(試合プレビューのデザイン) =====
+        float k = Screen.height / 720f;   // 1280x720 で作ったデザインを画面の大きさに合わせる
+        DrawTimer(k, amber, white);
 
-        // 自分と CPU のパネル
-        string cpuSub = "";
-        if (savedDifficulty >= 0) cpuSub = difficultyNames[savedDifficulty];
-        if (cpuWeapon != null) cpuSub += (cpuSub.Length > 0 ? "  /  " : "") + cpuWeapon.GetWeaponName(cpuWeapon.CurrentIndex);
-
-        DrawFighterPanel(false, unit, "P1", "YOU", "", playerStocks, player, playerWaiting,
-                         cyan, new Color32(0x03, 0x14, 0x17, 0xFF), white);
-        DrawFighterPanel(true, unit, "CPU", "CPU", cpuSub, cpuStocks, cpu, cpuWaiting,
-                         amber, new Color32(0x1F, 0x13, 0x00, 0xFF), white);
-
-        // 自分の武器と熱ゲージ(画面下の中央)
-        DrawWeaponSlots(playerWeapon, unit, cyan, white);
+        string cpuSub = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
+        DrawHudPanel(false, k, "P1", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
+                     cyan, new Color32(0x03, 0x14, 0x17, 0xFF));
+        DrawHudPanel(true, k, "P2", "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
+                     amber, new Color32(0x1F, 0x13, 0x00, 0xFF));
 
         // 頭の上のマーカー(画面の外にいるときは、ふちに矢印)
         if (showMarkers && state != State.SelectDifficulty)
@@ -534,143 +522,227 @@ public class MatchManager : MonoBehaviour
         tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
-    // 画面下の左右に出す、1人分のパネル
-    void DrawFighterPanel(bool rightSide, float unit, string badge, string name, string sub,
-                          int stocks, HealthSystem fighter, bool waiting,
-                          Color accent, Color badgeText, Color white)
+    // ===== HUD の部品 =====
+
+    [Header("HUD の見た目")]
+    [Tooltip("数字やラベル用の等幅フォント(IBM Plex Mono など)。空なら HUD Font を使う")]
+    public Font monoFont;
+
+    private GUIStyle hudName, hudMono, hudNum;
+
+    void EnsureHudStyles()
     {
-        Color panel = new Color32(0x0D, 0x11, 0x17, 0xE0);
-        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
-        Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
-        Color hot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
+        if (hudName != null) return;
+        hudName = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Overflow };
+        hudNum = new GUIStyle(hudName) { alignment = TextAnchor.MiddleRight };
+        hudMono = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Overflow };
+        if (hudFont != null) { hudName.font = hudFont; hudNum.font = hudFont; }
+        Font mono = monoFont != null ? monoFont : hudFont;
+        if (mono != null) hudMono.font = mono;
+        hudName.padding = hudNum.padding = hudMono.padding = new RectOffset(0, 0, 0, 0);
+    }
 
-        float w = unit * 7.6f, h = unit * 2.5f;
-        float x = rightSide ? Screen.width - w - unit * 0.5f : unit * 0.5f;
-        float y = Screen.height - h - unit * 0.5f;
-        Rect r = new Rect(x, y, w, h);
+    static readonly Color HudPanel = new Color32(0x0D, 0x11, 0x17, 0xF0);
+    static readonly Color HudLine = new Color32(0x1E, 0x27, 0x33, 0xFF);
+    static readonly Color HudSlot = new Color32(0x0A, 0x0E, 0x14, 0xFF);
+    static readonly Color HudLabel = new Color32(0x7D, 0x8A, 0x9B, 0xFF);
+    static readonly Color HudGrey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
+    static readonly Color HudEmpty = new Color32(0x3A, 0x44, 0x52, 0xFF);
+    static readonly Color HudHot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
+    static readonly Color HudRed = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
+    static readonly Color HudWhite = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-        Fill(r, panel);
-        Border(r, line, 1f);
+    // 上の真ん中のタイマー
+    void DrawTimer(float k, Color amber, Color white)
+    {
+        EnsureHudStyles();
+        int m = Mathf.FloorToInt(timeLeft / 60f);
+        int sec = Mathf.FloorToInt(timeLeft % 60f);
+        Rect r = new Rect(Screen.width / 2f - 60 * k, 18 * k, 120 * k, 40 * k);
+        Fill(r, HudPanel);
+        Border(r, HudLine, 1f);
+        hudMono.fontSize = Mathf.RoundToInt(22 * k);
+        hudMono.alignment = TextAnchor.MiddleCenter;
+        hudMono.normal.textColor = (state == State.Playing && timeLeft <= 30f) ? amber : white;
+        GUI.Label(r, m + ":" + sec.ToString("00"), hudMono);
+        hudMono.alignment = TextAnchor.MiddleLeft;
+    }
 
-        // バッジ(P1 / CPU)
-        Rect badgeRect = new Rect(x + unit * 0.3f, y + unit * 0.3f, unit * 1.4f, unit * 0.75f);
-        Fill(badgeRect, accent);
-        tinyStyle.alignment = TextAnchor.MiddleCenter;
-        tinyStyle.normal.textColor = badgeText;
-        GUI.Label(badgeRect, badge, tinyStyle);
+    // 下の左右のパネル(名前・ストック・HP・武器と熱・部位)
+    void DrawHudPanel(bool rightSide, float k, string badge, string name, string sub,
+                      int stocks, HealthSystem fighter, bool waiting, WeaponSystem weapon,
+                      Color accent, Color badgeText)
+    {
+        EnsureHudStyles();
 
-        // 名前と補足(強さ・武器)
-        smallStyle.alignment = TextAnchor.MiddleLeft;
-        smallStyle.normal.textColor = white;
-        GUI.Label(new Rect(x + unit * 2f, y + unit * 0.22f, w * 0.5f, unit * 0.9f), name, smallStyle);
+        int n = weapon != null ? weapon.WeaponCount : 0;
+        int rows = Mathf.Max(1, Mathf.CeilToInt(n / 3f));
+        float W = 420f, H = 62f + rows * 44f - 6f;     // 武器3つで1段、6つで2段
+        float x0 = rightSide ? Screen.width / k - W - 20f : 20f;
+        float y0 = Screen.height / k - H - 14f;
 
-        // 部位の状態(H 頭 / A 腕 / L 脚):無事=枠だけ、半分以下=オレンジ、壊れた=赤
-        float px = x + unit * 0.3f, py = y + unit * 1.25f, pw = unit * 0.62f, ph = unit * 0.5f;
+        // パネル
+        Rect panel = R(k, x0, y0, W, H);
+        Fill(panel, HudPanel);
+        Border(panel, HudLine, 1f);
+
+        // バッジ(P1 / P2)
+        Rect b = R(k, x0 + 14, y0 + 12, 30, 22);
+        Fill(b, accent);
+        hudMono.fontSize = Mathf.RoundToInt(12 * k);
+        hudMono.alignment = TextAnchor.MiddleCenter;
+        hudMono.normal.textColor = badgeText;
+        GUI.Label(b, badge, hudMono);
+        hudMono.alignment = TextAnchor.MiddleLeft;
+
+        // 名前(と CPU の強さ)
+        hudName.fontSize = Mathf.RoundToInt(16 * k);
+        hudName.normal.textColor = HudWhite;
+        Rect nr = R(k, x0 + 54, y0 + 12, 100, 22);
+        GUI.Label(nr, name, hudName);
+        if (sub.Length > 0)
+        {
+            float nw = hudName.CalcSize(new GUIContent(name)).x / k;
+            hudMono.fontSize = Mathf.RoundToInt(10 * k);
+            hudMono.normal.textColor = HudLabel;
+            GUI.Label(R(k, x0 + 54 + nw + 8, y0 + 13, 70, 22), sub, hudMono);
+        }
+
+        // ストック(四角)
+        for (int i = 0; i < stockCount; i++)
+        {
+            Rect sq = R(k, x0 + 178 + i * 16, y0 + 18, 10, 10);
+            if (i < stocks) Fill(sq, accent);
+            else Border(sq, HudEmpty, 1f);
+        }
+
+        // HP
+        int hp = (fighter != null && !waiting) ? fighter.currentHealth : 0;
+        int maxHp = fighter != null ? Mathf.Max(1, fighter.maxHealth) : 100;
+        bool low = hp <= maxHp * 0.3f;
+        hudMono.fontSize = Mathf.RoundToInt(11 * k);
+        hudMono.normal.textColor = HudLabel;
+        hudMono.alignment = TextAnchor.MiddleRight;
+        GUI.Label(R(k, x0 + W - 110, y0 + 12, 48, 24), "HP", hudMono);
+        hudMono.alignment = TextAnchor.MiddleLeft;
+        hudNum.fontSize = Mathf.RoundToInt(26 * k);
+        hudNum.normal.textColor = low ? HudHot : HudWhite;
+        GUI.Label(R(k, x0 + W - 100, y0 + 6, 86, 34), hp.ToString(), hudNum);
+
+        Fill(R(k, x0 + 14, y0 + 42, W - 28, 4), HudLine);
+        Fill(R(k, x0 + 14, y0 + 42, (W - 28) * Mathf.Clamp01((float)hp / maxHp), 4), low ? HudHot : accent);
+
+        // 武器スロット(3つずつ並べる)
+        for (int i = 0; i < n; i++)
+        {
+            float sx = x0 + 14 + (i % 3) * 112, sy = y0 + 54 + (i / 3) * 44;
+            DrawWeaponSlot(k, weapon, i, sx, sy, 104, 38, accent);
+        }
+
+        // 部位(H 頭 / A 腕 / L 脚)
         if (fighter != null && fighter.enablePartDamage)
         {
-            string[] partLabels = { "H", "A", "L" };
+            string[] labels = { "H", "A", "L" };
             float[] ratios = { fighter.HeadRatio, fighter.ArmRatio, fighter.LegRatio };
-            Color red = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
-
+            float px = x0 + 352;
             for (int i = 0; i < 3; i++)
             {
-                Rect pr = new Rect(px + i * (pw + unit * 0.12f), py, pw, ph);
-                bool broken = ratios[i] <= 0f;
-                bool damaged = ratios[i] <= 0.5f;
+                float py = y0 + 60 + i * 12;
+                float ratio = waiting ? 1f : Mathf.Clamp01(ratios[i]);
+                bool broken = ratio <= 0f;
+                hudMono.fontSize = Mathf.RoundToInt(9 * k);
+                hudMono.normal.textColor = broken ? HudRed : HudLabel;
+                GUI.Label(R(k, px, py - 4, 12, 12), labels[i], hudMono);
+                Rect bar = R(k, px + 12, py, 42, 4);
+                Fill(bar, HudLine);
+                Fill(R(k, px + 12, py, 42 * ratio, 4), ratio > 0.5f ? HudGrey : HudHot);
+                if (broken) Border(R(k, px + 11, py - 1, 44, 6), HudRed, 1f);
+            }
+        }
+    }
 
-                if (broken) Fill(pr, red);
-                else if (damaged) Fill(pr, hot);
-                else Border(pr, line, 1f);
+    // 武器スロット1つ(アイコン・名前・熱ゲージ)
+    void DrawWeaponSlot(float k, WeaponSystem weapon, int i, float sx, float sy, float sw, float sh, Color accent)
+    {
+        bool current = weapon.CurrentIndex == i;
+        bool switching = current && weapon.IsSwitching;
+        bool locked = weapon.IsLocked(i);
+        float heat = weapon.GetHeat(i);
+        string wn = weapon.GetWeaponName(i);
 
-                tinyStyle.alignment = TextAnchor.MiddleCenter;
-                tinyStyle.normal.textColor = (broken || damaged) ? new Color32(0x07, 0x09, 0x0D, 0xFF) : grey;
-                GUI.Label(pr, partLabels[i], tinyStyle);
+        Rect r = R(k, sx, sy, sw, sh);
+        Fill(r, HudSlot);
+        Border(r, current && !switching ? accent : HudLine, 1f);
+
+        // 持ち替え中:下に進み具合のバー
+        if (switching) Fill(R(k, sx, sy + sh - 2, sw * weapon.SwitchProgress, 2), accent);
+
+        // アイコン(弾の飛び方の線)
+        Color ic = locked ? HudRed : (current ? accent : HudGrey);
+        DrawWeaponIcon(k, wn, sx + 5, sy + 11, ic);
+
+        // 名前
+        hudMono.fontSize = Mathf.RoundToInt(9.5f * k);
+        hudMono.normal.textColor = locked ? HudRed : HudWhite;
+        string label = locked ? "OVERHEAT " + Mathf.CeilToInt(weapon.GetLockRemaining(i)) : (i + 1) + " " + wn;
+        GUI.Label(R(k, sx + 42, sy + 4, sw - 44, 16), label, hudMono);
+
+        // 熱ゲージ(オーバーヒート中は残り時間)
+        Fill(R(k, sx + 42, sy + 25, sw - 50, 4), HudLine);
+        float ratio = locked
+            ? Mathf.Clamp01(weapon.GetLockRemaining(i) / Mathf.Max(0.01f, weapon.overheatLockTime))
+            : Mathf.Clamp01(heat / 100f);
+        Color hc = locked ? HudRed : (heat >= 70f ? HudHot : accent);
+        Fill(R(k, sx + 42, sy + 25, (sw - 50) * ratio, 4), hc);
+    }
+
+    // 武器ごとのアイコン(64x32 の線を半分の大きさで描く)
+    void DrawWeaponIcon(float k, string weaponName, float x, float y, Color c)
+    {
+        float s = 0.5f, t = 2.5f;
+        Vector2 P(float px, float py) => new Vector2((x + px * s) * k, (y + py * s) * k);
+        void Line(float ax, float ay, float bx, float by) => DrawLineGUI(P(ax, ay), P(bx, by), t * k, c);
+        void Quad(float ax, float ay, float cx, float cy, float bx, float by)
+        {
+            Vector2 prev = P(ax, ay);
+            for (int j = 1; j <= 10; j++)
+            {
+                float u = j / 10f;
+                float qx = (1 - u) * (1 - u) * ax + 2 * (1 - u) * u * cx + u * u * bx;
+                float qy = (1 - u) * (1 - u) * ay + 2 * (1 - u) * u * cy + u * u * by;
+                Vector2 q = P(qx, qy);
+                DrawLineGUI(prev, q, t * k, c);
+                prev = q;
             }
         }
 
-        // 補足(強さ・武器)は部位の右に
-        tinyStyle.alignment = TextAnchor.MiddleLeft;
-        tinyStyle.normal.textColor = grey;
-        if (sub.Length > 0)
-            GUI.Label(new Rect(px + 3f * (pw + unit * 0.12f) + unit * 0.15f, py - unit * 0.05f, w * 0.45f, unit * 0.6f), sub, tinyStyle);
-
-        // ストック(右上の四角)
-        float sq = unit * 0.42f, sgap = unit * 0.18f;
-        for (int i = 0; i < stockCount; i++)
+        switch ((weaponName ?? "").ToUpper())
         {
-            Rect s = new Rect(x + w - unit * 0.35f - (stockCount - i) * (sq + sgap) + sgap, y + unit * 0.45f, sq, sq);
-            if (i < stocks) Fill(s, accent);
-            else Border(s, line, 1f);
+            case "BOUND": Line(6, 6, 22, 26); Line(22, 26, 38, 8); Line(38, 8, 58, 20); break;
+            case "TRACKING": Quad(6, 26, 30, 26, 38, 16); Quad(38, 16, 46, 6, 58, 6); break;
+            case "GRENADE": Quad(6, 28, 32, -6, 58, 28); break;
+            case "SHOTGUN": Line(6, 16, 58, 4); Line(6, 16, 58, 16); Line(6, 16, 58, 28); break;
+            case "ROUTE": Line(6, 26, 18, 8); Line(18, 8, 32, 24); Line(32, 24, 44, 6); Line(44, 6, 58, 18); break;
+            default: Line(6, 16, 58, 16); break; // NORMAL など
         }
-
-        // HP の数字(右下に大きく)
-        int hp = (fighter != null && !waiting) ? fighter.currentHealth : 0;
-        int maxHp = fighter != null ? Mathf.Max(1, fighter.maxHealth) : 100;
-
-        midStyle.alignment = TextAnchor.MiddleRight;
-        midStyle.normal.textColor = hp <= maxHp * 0.3f ? hot : white;
-        GUI.Label(new Rect(x + w * 0.4f, y + unit * 0.95f, w * 0.6f - unit * 0.35f, unit * 1.0f), hp.ToString(), midStyle);
-        midStyle.alignment = TextAnchor.MiddleCenter;
-
-        // HP バー
-        Rect bar = new Rect(x + unit * 0.3f, y + h - unit * 0.42f, w - unit * 0.6f, unit * 0.16f);
-        Fill(bar, line);
-        float ratio = Mathf.Clamp01((float)hp / maxHp);
-        Fill(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), hp <= maxHp * 0.3f ? hot : accent);
-
-        tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
-    void DrawWeaponSlots(WeaponSystem weapon, float unit, Color accent, Color white)
+    // 太さのある線(画面の座標で)
+    void DrawLineGUI(Vector2 a, Vector2 b, float thick, Color c)
     {
-        if (weapon == null || weapon.WeaponCount == 0) return;
+        Vector2 d = b - a;
+        float len = d.magnitude;
+        if (len < 0.01f) return;
+        Matrix4x4 m = GUI.matrix;
+        GUIUtility.RotateAroundPivot(Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg, a);
+        Fill(new Rect(a.x - thick / 2f, a.y - thick / 2f, len + thick, thick), c);
+        GUI.matrix = m;
+    }
 
-        Color panel = new Color32(0x0D, 0x11, 0x17, 0xE0);
-        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
-        Color hot = new Color32(0xFF, 0x8A, 0x3D, 0xFF);
-        Color red = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
-
-        int n = weapon.WeaponCount;
-        // 左右のパネルに重ならない幅に収める(武器が多いときは少し細くする)
-        float available = Screen.width - unit * 8.6f * 2f;
-        float slotW = Mathf.Min(unit * 3.1f, (available - (n - 1) * unit * 0.2f) / n);
-        float slotH = unit * 1.3f;
-        float gap = unit * 0.2f;
-        float totalW = n * slotW + (n - 1) * gap;
-        float x0 = (Screen.width - totalW) / 2f;
-        float y0 = Screen.height - slotH - unit * 0.5f;
-
-        for (int i = 0; i < n; i++)
-        {
-            Rect r = new Rect(x0 + i * (slotW + gap), y0, slotW, slotH);
-            bool current = weapon.CurrentIndex == i;
-            bool locked = weapon.IsLocked(i);
-            float heat = weapon.GetHeat(i);
-
-            Fill(r, panel);
-            Border(r, current ? accent : line, current ? 2f : 1f);
-
-            // 持ち替え中のゲージ(上の線)
-            if (current && weapon.IsSwitching)
-                Fill(new Rect(r.x, r.y, r.width * weapon.SwitchProgress, unit * 0.12f), accent);
-
-            // 名前
-            tinyStyle.normal.textColor = locked ? red : (current ? white : new Color(0.55f, 0.6f, 0.66f));
-            string label = locked
-                ? (i + 1) + " OVERHEAT " + Mathf.CeilToInt(weapon.GetLockRemaining(i))
-                : (i + 1) + " " + weapon.GetWeaponName(i);
-            GUI.Label(new Rect(r.x + unit * 0.25f, r.y + unit * 0.1f, r.width - unit * 0.3f, slotH * 0.55f), label, tinyStyle);
-
-            // 熱ゲージ
-            Rect bar = new Rect(r.x + unit * 0.25f, r.yMax - unit * 0.38f, r.width - unit * 0.5f, unit * 0.16f);
-            Fill(bar, line);
-            Color barColor = locked ? red : (heat >= 70f ? hot : accent);
-            // オーバーヒート中は、残り時間に合わせてゲージが減っていく
-            float ratio = locked
-                ? Mathf.Clamp01(weapon.GetLockRemaining(i) / Mathf.Max(0.01f, weapon.overheatLockTime))
-                : Mathf.Clamp01(heat / 100f);
-            Fill(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), barColor);
-        }
+    // デザイン上の座標(1280x720)を、実際の画面の座標に変える
+    static Rect R(float k, float x, float y, float w, float h)
+    {
+        return new Rect(x * k, y * k, w * k, h * k);
     }
 
     void DrawMarker(HealthSystem fighter, bool waiting, string label, Color accent, Color textColor, float unit)
