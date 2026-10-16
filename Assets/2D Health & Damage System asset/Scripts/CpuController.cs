@@ -1,39 +1,48 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
-// CPU(AI)‚Ì“ª”]BPlayerController ‚Æ WeaponSystem ‚É“ü—Í‚ğ“n‚µ‚Ä“®‚©‚·
-// CPU —p‚Ìƒƒ{ƒbƒg(Player ‚ğ•¡»‚µ‚½‚à‚Ì)‚É•t‚¯‚é
+// CPU(AI)ã®é ­è„³ã€‚PlayerController ã¨ WeaponSystem ã«å…¥åŠ›ã‚’æ¸¡ã—ã¦å‹•ã‹ã™
+// CPU ç”¨ã®ãƒ­ãƒœãƒƒãƒˆ(Player ã‚’è¤‡è£½ã—ãŸã‚‚ã®)ã«ä»˜ã‘ã‚‹
 [RequireComponent(typeof(PlayerController))]
 public class CpuController : MonoBehaviour
 {
-    [Header("‘Šè")]
-    [Tooltip("‹ó‚È‚çuPlayerv‚Æ‚¢‚¤–¼‘O‚ÌƒIƒuƒWƒFƒNƒg‚ğ’T‚·")]
+    [Header("ç›¸æ‰‹")]
+    [Tooltip("ç©ºãªã‚‰ã€ŒPlayerã€ã¨ã„ã†åå‰ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’æ¢ã™")]
     public Transform target;
 
-    [Header("ƒXƒe[ƒW‚Ì”ÍˆÍ(ƒƒCƒ“‚Ì°‚Ì¶‰E‚Ì’[)")]
+    [Header("ã‚¹ãƒ†ãƒ¼ã‚¸ã®ç¯„å›²(ãƒ¡ã‚¤ãƒ³ã®åºŠã®å·¦å³ã®ç«¯)")]
     public float stageLeft = -10f;
     public float stageRight = 10f;
-    [Tooltip("’[‚©‚ç‚±‚Ì‹——£‚æ‚èŠO‚É‚Í©•ª‚©‚ç‹ß‚Ã‚©‚È‚¢")]
+    [Tooltip("ç«¯ã‹ã‚‰ã“ã®è·é›¢ã‚ˆã‚Šå¤–ã«ã¯è‡ªåˆ†ã‹ã‚‰è¿‘ã¥ã‹ãªã„")]
     public float edgeMargin = 1.5f;
 
-    [Header("“®‚«")]
-    [Tooltip("‘Šè‚Æ•Û‚¿‚½‚¢‰¡‚Ì‹——£")]
+    [Header("å‹•ã")]
+    [Tooltip("ç›¸æ‰‹ã¨ä¿ã¡ãŸã„æ¨ªã®è·é›¢")]
     public float preferredDistance = 5f;
-    [Tooltip("‚±‚Ì•‚Ì’†‚È‚ç‹——£‚Í‚¿‚å‚¤‚Ç‚¢‚¢‚Æ‚İ‚È‚·")]
+    [Tooltip("ã“ã®å¹…ã®ä¸­ãªã‚‰è·é›¢ã¯ã¡ã‚‡ã†ã©ã„ã„ã¨ã¿ãªã™")]
     public float distanceTolerance = 1.5f;
-    [Tooltip("l‚¦’¼‚·ŠÔŠu(•b)B¬‚³‚¢‚Ù‚Ç”½‰‚ª‘¬‚¢")]
+    [Tooltip("è€ƒãˆç›´ã™é–“éš”(ç§’)ã€‚å°ã•ã„ã»ã©åå¿œãŒé€Ÿã„")]
     public float thinkInterval = 0.25f;
-    [Tooltip("l‚¦‚é‚½‚Ñ‚ÉAƒ‰ƒ“ƒ_ƒ€‚ÅƒWƒƒƒ“ƒv‚·‚éŠm—¦")]
+    [Tooltip("è€ƒãˆã‚‹ãŸã³ã«ã€ãƒ©ãƒ³ãƒ€ãƒ ã§ã‚¸ãƒ£ãƒ³ãƒ—ã™ã‚‹ç¢ºç‡")]
     [Range(0f, 1f)] public float randomJumpChance = 0.1f;
 
-    [Header("ËŒ‚")]
+    [Header("å°„æ’ƒ")]
     public float fireIntervalMin = 0.5f;
     public float fireIntervalMax = 1.2f;
-    [Tooltip("‚±‚Ì‹——£‚æ‚è‰“‚¢‚ÆŒ‚‚½‚È‚¢")]
+    [Tooltip("ã“ã®è·é›¢ã‚ˆã‚Šé ã„ã¨æ’ƒãŸãªã„")]
     public float fireRange = 14f;
-    [Tooltip("‘_‚¢‚ÌƒuƒŒB‘å‚«‚¢‚Ù‚ÇŠO‚ê‚â‚·‚¢")]
+    [Tooltip("ç‹™ã„ã®ãƒ–ãƒ¬ã€‚å¤§ãã„ã»ã©å¤–ã‚Œã‚„ã™ã„")]
     public float aimError = 0.6f;
-    [Tooltip("•Ší‚ğ‚¿‘Ö‚¦‚éŠÔŠu(•b)")]
+    [Tooltip("æ­¦å™¨ã‚’æŒã¡æ›¿ãˆã‚‹é–“éš”(ç§’)")]
     public float weaponChangeInterval = 6f;
+
+    [Header("æ’ƒã¤ãƒªã‚ºãƒ (æ’ƒã¤ â†’ ä¼‘ã‚€ ã‚’ãã‚Šè¿”ã™)")]
+    [Tooltip("è©¦åˆé–‹å§‹ãƒ»è‡ªåˆ†ã®å¾©æ´»ã®ã‚ã¨ã€æ’ƒã¡å§‹ã‚ã‚‹ã¾ã§ã®æ™‚é–“(ç§’)")]
+    public float startDelay = 2f;
+    [Tooltip("1å›ã®æ”»æ’ƒã§æ’ƒã¤å¼¾ã®æ•°")]
+    public int shotsPerBurst = 3;
+    [Tooltip("æ”»æ’ƒã®ã‚ã¨ã«ä¼‘ã‚€æ™‚é–“(ç§’)ã€‚ã“ã®é–“ã¯æ’ƒãŸãšã«å‹•ãã ã‘")]
+    public float restMin = 1.5f;
+    public float restMax = 2.5f;
 
     private PlayerController pc;
     private WeaponSystem weapon;
@@ -48,10 +57,12 @@ public class CpuController : MonoBehaviour
     private float strafeDir = 1f;
     private float strafeTimer;
     private Vector2 aimOffset;
+    private int shotsLeft;
+    private bool wasDead;
 
     public enum Difficulty { Easy, Normal, Hard }
 
-    // ‹­‚³‚É‡‚í‚¹‚ÄA”½‰EËŒ‚E‘_‚¢E“®‚«‚Ì”š‚ğ‚Ü‚Æ‚ß‚Ä•Ï‚¦‚é
+    // å¼·ã•ã«åˆã‚ã›ã¦ã€åå¿œãƒ»å°„æ’ƒãƒ»ç‹™ã„ãƒ»å‹•ãã®æ•°å­—ã‚’ã¾ã¨ã‚ã¦å¤‰ãˆã‚‹
     public void ApplyDifficulty(Difficulty d)
     {
         switch (d)
@@ -64,6 +75,11 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.05f;
                 preferredDistance = 6f;
                 weaponChangeInterval = 8f;
+                startDelay = 3f;
+                shotsPerBurst = 2;
+                restMin = 2.5f;
+                restMax = 3.5f;
+                fireRange = 10f;
                 break;
 
             case Difficulty.Normal:
@@ -74,6 +90,11 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.1f;
                 preferredDistance = 5f;
                 weaponChangeInterval = 6f;
+                startDelay = 2f;
+                shotsPerBurst = 3;
+                restMin = 1.5f;
+                restMax = 2.5f;
+                fireRange = 12f;
                 break;
 
             case Difficulty.Hard:
@@ -84,6 +105,11 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.18f;
                 preferredDistance = 4.5f;
                 weaponChangeInterval = 4f;
+                startDelay = 1f;
+                shotsPerBurst = 4;
+                restMin = 0.8f;
+                restMax = 1.4f;
+                fireRange = 14f;
                 break;
         }
     }
@@ -95,7 +121,7 @@ public class CpuController : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         pc.isCpu = true;
 
-        // e‚ª•¡”•t‚¢‚Ä‚¢‚Ä‚àA‘S•” CPU ƒ‚[ƒh‚É‚µ‚Äƒ}ƒEƒX‚ÅŒ‚‚½‚È‚¢‚æ‚¤‚É‚·‚é
+        // éŠƒãŒè¤‡æ•°ä»˜ã„ã¦ã„ã¦ã‚‚ã€å…¨éƒ¨ CPU ãƒ¢ãƒ¼ãƒ‰ã«ã—ã¦ãƒã‚¦ã‚¹ã§æ’ƒãŸãªã„ã‚ˆã†ã«ã™ã‚‹
         WeaponSystem[] guns = GetComponentsInChildren<WeaponSystem>(true);
         foreach (WeaponSystem g in guns)
         {
@@ -114,27 +140,48 @@ public class CpuController : MonoBehaviour
         }
         if (target != null) targetHealth = target.GetComponent<HealthSystem>();
 
-        fireTimer = Random.Range(fireIntervalMin, fireIntervalMax);
         weaponTimer = weaponChangeInterval;
+        ResetAttack();
+    }
+
+    // è©¦åˆãŒå§‹ã¾ã£ãŸã¨ã(MatchManager ãŒã“ã®ã‚¹ã‚¯ãƒªãƒ—ãƒˆã‚’ã‚ªãƒ³ã«ã—ãŸã¨ã)
+    void OnEnable()
+    {
+        ResetAttack();
+    }
+
+    // ã—ã°ã‚‰ãæ’ƒãŸãšã«æ§˜å­ã‚’è¦‹ã‚‹çŠ¶æ…‹ã«æˆ»ã™
+    void ResetAttack()
+    {
+        fireTimer = startDelay + Random.Range(0f, 0.5f);
+        shotsLeft = shotsPerBurst;
     }
 
     void Update()
     {
-        // ‘Šè‚ª‚¢‚È‚¢A‚Ü‚½‚Í©•ª‚ª‚â‚ç‚ê‚Ä‚¢‚é‚Æ‚«‚Í‰½‚à‚µ‚È‚¢
+        // ç›¸æ‰‹ãŒã„ãªã„ã€ã¾ãŸã¯è‡ªåˆ†ãŒã‚„ã‚‰ã‚Œã¦ã„ã‚‹ã¨ãã¯ä½•ã‚‚ã—ãªã„
         if (target == null || (health != null && health.currentHealth <= 0))
         {
             pc.SetCpuInput(0f, false);
+            wasDead = true;
             return;
+        }
+
+        // å¾©æ´»ã—ãŸç›´å¾Œã¯ã€ã™ãã«ã¯æ’ƒãŸãªã„
+        if (wasDead)
+        {
+            wasDead = false;
+            ResetAttack();
         }
 
         Vector2 me = transform.position;
         Vector2 tp = target.position;
         bool targetAlive = targetHealth == null || targetHealth.currentHealth > 0;
 
-        // ‘_‚¢‚Í–ˆƒtƒŒ[ƒ€‡‚í‚¹‚é(­‚µƒuƒŒ‚ğ“ü‚ê‚é)
+        // ç‹™ã„ã¯æ¯ãƒ•ãƒ¬ãƒ¼ãƒ åˆã‚ã›ã‚‹(å°‘ã—ãƒ–ãƒ¬ã‚’å…¥ã‚Œã‚‹)
         if (weapon != null) weapon.CpuAimAt(tp + Vector2.up * 0.5f + aimOffset);
 
-        // “®‚«‚Í thinkInterval ‚²‚Æ‚Él‚¦’¼‚·
+        // å‹•ãã¯ thinkInterval ã”ã¨ã«è€ƒãˆç›´ã™
         thinkTimer -= Time.deltaTime;
         if (thinkTimer <= 0f)
         {
@@ -142,7 +189,7 @@ public class CpuController : MonoBehaviour
             Think(me, tp);
         }
 
-        // ¡‚Ì•Ší‚ª”M‚­‚È‚Á‚Ä‚¢‚½‚çA—â‚¦‚Ä‚¢‚é•Ší‚É‚¿‘Ö‚¦‚é
+        // ä»Šã®æ­¦å™¨ãŒç†±ããªã£ã¦ã„ãŸã‚‰ã€å†·ãˆã¦ã„ã‚‹æ­¦å™¨ã«æŒã¡æ›¿ãˆã‚‹
         if (weapon != null)
         {
             int cur = weapon.CurrentIndex;
@@ -153,19 +200,30 @@ public class CpuController : MonoBehaviour
             }
         }
 
-        // ËŒ‚
+        // å°„æ’ƒ
+        // å°„æ’ƒ:shotsPerBurst ç™ºæ’ƒã£ãŸã‚‰ã€restMinã€œrestMax ç§’ä¼‘ã‚€
         fireTimer -= Time.deltaTime;
         if (fireTimer <= 0f)
         {
-            fireTimer = Random.Range(fireIntervalMin, fireIntervalMax);
             if (weapon != null && targetAlive && Vector2.Distance(me, tp) <= fireRange)
             {
                 weapon.CpuShootAt(tp + Vector2.up * 0.5f);
                 aimOffset = Random.insideUnitCircle * aimError;
+                shotsLeft--;
+            }
+
+            if (shotsLeft <= 0)
+            {
+                shotsLeft = shotsPerBurst;
+                fireTimer = Random.Range(restMin, restMax);   // ä¼‘ã‚€
+            }
+            else
+            {
+                fireTimer = Random.Range(fireIntervalMin, fireIntervalMax);
             }
         }
 
-        // ‚Æ‚«‚Ç‚«•Ší‚ğ‚¿‘Ö‚¦‚é
+        // ã¨ãã©ãæ­¦å™¨ã‚’æŒã¡æ›¿ãˆã‚‹
         weaponTimer -= Time.deltaTime;
         if (weaponTimer <= 0f)
         {
@@ -184,7 +242,7 @@ public class CpuController : MonoBehaviour
 
         if (offStage)
         {
-            // êŠO‚Éo‚½‚çAƒXƒe[ƒW‚Ì’†‰›‚Ö–ß‚ë‚¤‚Æ‚·‚éB—‚¿n‚ß‚½‚ç‹ó’†ƒWƒƒƒ“ƒv
+            // å ´å¤–ã«å‡ºãŸã‚‰ã€ã‚¹ãƒ†ãƒ¼ã‚¸ã®ä¸­å¤®ã¸æˆ»ã‚ã†ã¨ã™ã‚‹ã€‚è½ã¡å§‹ã‚ãŸã‚‰ç©ºä¸­ã‚¸ãƒ£ãƒ³ãƒ—
             move = me.x < 0f ? 1f : -1f;
             if (rb != null && rb.linearVelocity.y < 0f) jump = true;
         }
@@ -192,15 +250,15 @@ public class CpuController : MonoBehaviour
         {
             if (dist > preferredDistance + distanceTolerance)
             {
-                move = Mathf.Sign(dx);          // ‰“‚¢‚Ì‚Å‹ß‚Ã‚­
+                move = Mathf.Sign(dx);          // é ã„ã®ã§è¿‘ã¥ã
             }
             else if (dist < preferredDistance - distanceTolerance)
             {
-                move = -Mathf.Sign(dx);         // ‹ß‚·‚¬‚é‚Ì‚Å—£‚ê‚é
+                move = -Mathf.Sign(dx);         // è¿‘ã™ãã‚‹ã®ã§é›¢ã‚Œã‚‹
             }
             else
             {
-                // ‚¿‚å‚¤‚Ç‚¢‚¢‹——£‚È‚çA¶‰E‚É‚ä‚ç‚ä‚ç“®‚¢‚Ä“I‚ğ‚µ‚Ú‚ç‚¹‚È‚¢
+                // ã¡ã‚‡ã†ã©ã„ã„è·é›¢ãªã‚‰ã€å·¦å³ã«ã‚†ã‚‰ã‚†ã‚‰å‹•ã„ã¦çš„ã‚’ã—ã¼ã‚‰ã›ãªã„
                 strafeTimer -= thinkInterval;
                 if (strafeTimer <= 0f)
                 {
@@ -210,14 +268,14 @@ public class CpuController : MonoBehaviour
                 move = strafeDir * 0.5f;
             }
 
-            // ’[‚Ì‹ß‚­‚Å‚ÍAŠO‘¤‚Ö‚Íi‚Ü‚È‚¢
+            // ç«¯ã®è¿‘ãã§ã¯ã€å¤–å´ã¸ã¯é€²ã¾ãªã„
             if (me.x < stageLeft + edgeMargin && move < 0f) move = 1f;
             if (me.x > stageRight - edgeMargin && move > 0f) move = -1f;
 
-            // ‘Šè‚ªã‚Ì‘«ê‚É‚¢‚½‚çAƒWƒƒƒ“ƒv‚Å’Ç‚¢‚©‚¯‚é
+            // ç›¸æ‰‹ãŒä¸Šã®è¶³å ´ã«ã„ãŸã‚‰ã€ã‚¸ãƒ£ãƒ³ãƒ—ã§è¿½ã„ã‹ã‘ã‚‹
             if (tp.y > me.y + 1.5f && pc.IsGrounded) jump = true;
 
-            // ‚Æ‚«‚Ç‚«ƒ‰ƒ“ƒ_ƒ€‚ÉƒWƒƒƒ“ƒv‚µ‚ÄA’e‚ğ‚æ‚¯‚é
+            // ã¨ãã©ããƒ©ãƒ³ãƒ€ãƒ ã«ã‚¸ãƒ£ãƒ³ãƒ—ã—ã¦ã€å¼¾ã‚’ã‚ˆã‘ã‚‹
             if (Random.value < randomJumpChance) jump = true;
         }
 
