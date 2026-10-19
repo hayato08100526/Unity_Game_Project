@@ -46,6 +46,7 @@ public class TitleScreen : MonoBehaviour
     private readonly Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
 
     private bool showHowTo = false;
+    private bool showSettings = false;
     private int tab = 0;
     private static readonly string[] tabNames = { "そうさ", "ぶき", "ルール" };
 
@@ -113,6 +114,15 @@ public class TitleScreen : MonoBehaviour
 
     void Update()
     {
+        if (showSettings)
+        {
+            if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) ChangeVolume(+1);
+            if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) ChangeVolume(-1);
+            if (Input.GetKeyDown(KeyCode.F)) ToggleFullscreen();
+            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Backspace)) showSettings = false;
+            return;
+        }
+
         if (showHowTo)
         {
             if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) tab = (tab + 1) % tabNames.Length;
@@ -125,6 +135,30 @@ public class TitleScreen : MonoBehaviour
             LoadScene(cpuSceneName);
 
         if (Input.GetKeyDown(KeyCode.H)) OpenHowTo();
+        if (Input.GetKeyDown(KeyCode.S)) showSettings = true;
+    }
+
+    // 音量を 10 ずつ変える(変えるたびに音を鳴らして、大きさが分かるように)
+    void ChangeVolume(int dir)
+    {
+        int v = Mathf.RoundToInt(SoundManager.Volume * 10f) + dir;
+        SoundManager.Volume = Mathf.Clamp(v, 0, 10) / 10f;
+        SoundManager.Play("count");
+    }
+
+    void ToggleFullscreen()
+    {
+        if (Screen.fullScreen)
+        {
+            Screen.fullScreenMode = FullScreenMode.Windowed;
+            Screen.fullScreen = false;
+        }
+        else
+        {
+            Screen.fullScreenMode = FullScreenMode.FullScreenWindow;
+            Screen.fullScreen = true;
+        }
+        SoundManager.Play("ui");
     }
 
     void OpenHowTo()
@@ -171,7 +205,8 @@ public class TitleScreen : MonoBehaviour
 
         Fill(new Rect(0, 0, Screen.width, Screen.height), bg);
 
-        if (showHowTo) DrawHowTo(unit);
+        if (showSettings) DrawSettings(unit);
+        else if (showHowTo) DrawHowTo(unit);
         else DrawTitle(unit);
     }
 
@@ -187,18 +222,79 @@ public class TitleScreen : MonoBehaviour
         subStyle.normal.textColor = cyan;
         GUI.Label(new Rect(0, Screen.height * 0.1f + unit * 3f, Screen.width, unit), "R O B O T   V E R S U S   S H O O T E R", subStyle);
 
-        float w = unit * 9f, h = unit * 1.5f, gap = unit * 0.45f;
+        float w = unit * 9f, h = unit * 1.35f, gap = unit * 0.35f;
         float x = (Screen.width - w) / 2f;
-        float y = Screen.height * 0.38f;
+        float y = Screen.height * 0.36f;
 
         if (Button(new Rect(x, y, w, h), "VS CPU", true)) LoadScene(cpuSceneName);
         if (Button(new Rect(x, y + (h + gap), w, h), "ONLINE MATCH", false)) LoadScene(onlineSceneName);
         if (Button(new Rect(x, y + (h + gap) * 2, w, h), "HOW TO PLAY", false)) OpenHowTo();
-        if (Button(new Rect(x, y + (h + gap) * 3, w, h), "QUIT", false)) Application.Quit();
+        if (Button(new Rect(x, y + (h + gap) * 3, w, h), "SETTINGS", false)) showSettings = true;
+        if (Button(new Rect(x, y + (h + gap) * 4, w, h), "QUIT", false)) Application.Quit();
 
         helpStyle.normal.textColor = grey;
         GUI.Label(new Rect(unit, Screen.height - unit * 1.6f, Screen.width - unit * 2f, unit),
-                  "ENTER:すぐに CPU 対戦      H:あそびかた", helpStyle);
+                  "ENTER:すぐに CPU 対戦      H:あそびかた      S:設定", helpStyle);
+    }
+
+    // ===== 設定画面 =====
+    void DrawSettings(float unit)
+    {
+        DrawTitleScene(unit);
+        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(bg.r, bg.g, bg.b, 0.6f));
+
+        buttonStyle.fontSize = Mathf.RoundToInt(unit * 1.1f);
+        buttonStyle.normal.textColor = white;
+        GUI.Label(new Rect(0, Screen.height * 0.12f, Screen.width, unit * 1.6f), "SETTINGS", buttonStyle);
+        buttonStyle.fontSize = Mathf.RoundToInt(unit * 0.8f);
+
+        float w = unit * 16f, rowH = unit * 2.2f;
+        float x = (Screen.width - w) / 2f;
+        float y = Screen.height * 0.3f;
+
+        // --- 音量 ---
+        Rect row = new Rect(x, y, w, rowH);
+        Fill(row, card);
+        Border(row, line, 1f);
+        jpHead.normal.textColor = white;
+        GUI.Label(new Rect(row.x + unit * 0.6f, row.y, unit * 4f, rowH), "音量", jpHead);
+
+        int vol = Mathf.RoundToInt(SoundManager.Volume * 10f);
+        float bh = rowH * 0.5f, bw = bh;
+        Rect minus = new Rect(row.x + unit * 4.2f, row.y + (rowH - bh) / 2f, bw, bh);
+        Rect plus = new Rect(row.xMax - unit * 2.6f - bw, minus.y, bw, bh);
+        if (Button(minus, "-", false)) ChangeVolume(-1);
+        if (Button(plus, "+", false)) ChangeVolume(+1);
+
+        // 10 マスのゲージ
+        float gx = minus.xMax + unit * 0.4f, gw = plus.x - unit * 0.4f - gx;
+        float cell = gw / 10f;
+        for (int i = 0; i < 10; i++)
+        {
+            Rect c = new Rect(gx + i * cell + 2f, row.y + rowH * 0.36f, cell - 4f, rowH * 0.28f);
+            if (i < vol) Fill(c, cyan); else Border(c, line, 1f);
+        }
+        chipStyle.normal.textColor = white;
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.55f);
+        GUI.Label(new Rect(plus.xMax, row.y, row.xMax - plus.xMax, rowH), (vol * 10).ToString(), chipStyle);
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.42f);
+
+        // --- 画面 ---
+        Rect row2 = new Rect(x, y + rowH + unit * 0.4f, w, rowH);
+        Fill(row2, card);
+        Border(row2, line, 1f);
+        GUI.Label(new Rect(row2.x + unit * 0.6f, row2.y, unit * 4f, rowH), "画面", jpHead);
+        string mode = Screen.fullScreen ? "FULLSCREEN" : "WINDOW";
+        Rect toggle = new Rect(row2.x + unit * 4.2f, row2.y + (rowH - bh) / 2f, w - unit * 4.8f, bh);
+        if (Button(toggle, mode + "   (F)", Screen.fullScreen)) ToggleFullscreen();
+
+        // 戻る
+        float backW = unit * 5f, backH = unit * 1.1f;
+        if (Button(new Rect((Screen.width - backW) / 2f, row2.yMax + unit * 1.2f, backW, backH), "BACK", false)) showSettings = false;
+
+        helpStyle.normal.textColor = grey;
+        GUI.Label(new Rect(0, Screen.height - unit * 1.2f, Screen.width, unit * 0.8f),
+                  "← → :音量      F:全画面の切り替え      ESC:もどる", helpStyle);
     }
 
     // ===== タイトルの絵:夜景の背景と、向かい合う2体のロボット =====

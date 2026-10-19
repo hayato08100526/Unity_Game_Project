@@ -358,6 +358,27 @@ public class CpuController : MonoBehaviour
                 }
             }
 
+            // HP が減っている(REPAIR)か、武器が熱い(COOLANT)ときは、近くのアイテムを取りに行く
+            ItemPickup want = null;
+            float best = 7f;
+            foreach (ItemPickup it in ItemPickup.Active)
+            {
+                if (it == null) continue;
+                bool useful = it.kind == ItemPickup.Kind.Repair
+                    ? (health != null && health.currentHealth < health.maxHealth * 0.6f)
+                    : (weapon != null && weapon.MaxHeat() >= 60f);
+                float d = Vector2.Distance(me, it.transform.position);
+                if (useful && d < best) { best = d; want = it; }
+            }
+            if (want != null)
+            {
+                Vector2 ip = want.transform.position;
+                move = Mathf.Abs(ip.x - me.x) > 0.3f ? Mathf.Sign(ip.x - me.x) : 0f;
+                if (ip.y > me.y + 1.2f && pc.IsGrounded) jump = true;
+                pc.SetCpuInput(move, jump);
+                return;
+            }
+
             // 相手が上の足場にいたら、ジャンプで追いかける
             if (tp.y > me.y + 1.5f && pc.IsGrounded) jump = true;
 

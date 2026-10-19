@@ -29,6 +29,10 @@ public class MatchManager : MonoBehaviour
     [Tooltip("HUD に使うフォント(Fonts フォルダの Oxanium-Bold など .ttf のもの)。空なら標準のフォント")]
     public Font hudFont;
 
+    [Header("アイテム")]
+    [Tooltip("オン:試合中に REPAIR / COOLANT が出る")]
+    public bool spawnItems = true;
+
     [Header("頭の上のマーカー")]
     [Tooltip("ロボットの足元(中心)から、マーカーを出す高さ")]
     public float markerHeight = 1.6f;
@@ -145,6 +149,9 @@ public class MatchManager : MonoBehaviour
     void Start()
     {
         Time.timeScale = 1f;
+
+        // アイテムを出す係(REPAIR / COOLANT)
+        if (spawnItems && GetComponent<ItemSpawner>() == null) gameObject.AddComponent<ItemSpawner>();
 
         if (player == null) player = FindFighter("Player");
         if (cpu == null) cpu = FindFighter("CPU");

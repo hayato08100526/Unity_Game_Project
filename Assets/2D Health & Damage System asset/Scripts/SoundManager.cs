@@ -8,6 +8,17 @@ public class SoundManager : MonoBehaviour
     private static SoundManager instance;
 
     [Range(0f, 1f)] public float masterVolume = 0.8f;
+
+    // 設定画面の音量(0〜1)。PlayerPrefs に保存して、次に起動したときも同じにする
+    public static float Volume
+    {
+        get { return PlayerPrefs.GetFloat("volume", 0.8f); }
+        set
+        {
+            PlayerPrefs.SetFloat("volume", Mathf.Clamp01(value));
+            PlayerPrefs.Save();
+        }
+    }
     [Tooltip("CPU の銃声の大きさ(自分の銃声より少し小さく)")]
     [Range(0f, 1f)] public float cpuShotVolume = 0.55f;
 
@@ -63,7 +74,7 @@ public class SoundManager : MonoBehaviour
         sm.lastPlayed[name] = Time.unscaledTime;
 
         sm.source.pitch = 1f + (pitchJitter > 0f ? Random.Range(-pitchJitter, pitchJitter) : 0f);
-        sm.source.PlayOneShot(clip, volume * sm.masterVolume);
+        sm.source.PlayOneShot(clip, volume * Volume);
     }
 
     // 武器の名前から銃声を選ぶ(NORMAL → shoot_normal)。見つからなければ shoot_normal

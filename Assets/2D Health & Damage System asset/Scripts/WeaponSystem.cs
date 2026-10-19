@@ -156,6 +156,26 @@ public class WeaponSystem : NetworkBehaviour
         return info != null ? info.fireInterval : 0.15f;
     }
 
+    // COOLANT アイテム:全部の武器の熱を 0 にして、オーバーヒートも解く
+    public void CoolAll()
+    {
+        EnsureArrays();
+        for (int i = 0; i < heat.Length; i++)
+        {
+            heat[i] = 0f;
+            lockedUntil[i] = -1f;
+        }
+    }
+
+    // 一番熱い武器の熱(CPU がアイテムを取りに行くか決めるのに使う)
+    public float MaxHeat()
+    {
+        EnsureArrays();
+        float m = 0f;
+        for (int i = 0; i < heat.Length; i++) m = Mathf.Max(m, IsLocked(i) ? 100f : heat[i]);
+        return m;
+    }
+
     void EnsureArrays()
     {
         int n = WeaponCount;
