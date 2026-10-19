@@ -52,6 +52,18 @@ public class CpuController : MonoBehaviour
     [Tooltip("武器を選び直す間隔(秒)")]
     public float smartWeaponInterval = 1.2f;
 
+    [Header("上級のかしこさ")]
+    [Tooltip("相手の動きを先読みして撃つ強さ(0 = 今いる場所を撃つ / 1 = 動く先を撃つ)")]
+    [Range(0f, 1f)] public float leadAim = 0.5f;
+    [Tooltip("オン:相手が武器を持ち替え中・オーバーヒート中のすきに、休まず攻める")]
+    public bool punishOpenings = true;
+    [Tooltip("オン:壁や床で相手が見えないときは撃たずに位置を変える")]
+    public bool checkLineOfSight = true;
+    [Tooltip("相手の HP が少ないとき、攻撃で撃つ弾を何発増やすか")]
+    public int finisherExtraShots = 1;
+    [Tooltip("自分の HP がこの割合より少ないと、距離をとって慎重に戦う")]
+    [Range(0f, 1f)] public float cautiousHpRatio = 0.3f;
+
     [Header("先手はプレイヤーに譲る")]
     [Tooltip("オン:試合開始のあと、プレイヤーが1発撃つまで CPU は撃たない")]
     public bool waitForPlayerFirstShot = false;
@@ -76,6 +88,10 @@ public class CpuController : MonoBehaviour
     private int shotsLeft;
     private bool wasDead;
     private WeaponSystem targetWeapon;
+    private Rigidbody2D targetRb;
+    private Vector2 aimPoint;
+    private bool canSee = true;
+    private float blockedTime;
 
     // ステージの真ん中の穴(SPLIT ステージ用)
     private bool hasGap;
@@ -114,6 +130,11 @@ public class CpuController : MonoBehaviour
                 fireRange = 10f;
                 maxWaitForPlayer = 8f;
                 reactionTime = 1.0f;
+                leadAim = 0f;
+                punishOpenings = false;
+                checkLineOfSight = false;
+                finisherExtraShots = 0;
+                cautiousHpRatio = 0f;
                 break;
 
             case Difficulty.Normal:
@@ -134,26 +155,36 @@ public class CpuController : MonoBehaviour
                 fireRange = 12f;
                 maxWaitForPlayer = 5f;
                 reactionTime = 0.6f;
+                leadAim = 0.5f;
+                punishOpenings = true;
+                checkLineOfSight = true;
+                finisherExtraShots = 1;
+                cautiousHpRatio = 0.25f;
                 break;
 
             case Difficulty.Hard:
-                thinkInterval = 0.12f;
-                fireIntervalMin = 0.3f;
-                fireIntervalMax = 0.7f;
-                aimError = 0.25f;
-                randomJumpChance = 0.18f;
-                dodgeChance = 0.8f;
+                thinkInterval = 0.08f;
+                fireIntervalMin = 0.25f;
+                fireIntervalMax = 0.5f;
+                aimError = 0.12f;
+                randomJumpChance = 0.15f;
+                dodgeChance = 0.92f;
                 smartWeapons = true;
-                smartWeaponInterval = 0.6f;
+                smartWeaponInterval = 0.4f;
                 preferredDistance = 4.5f;
                 weaponChangeInterval = 4f;
                 startDelay = 0.5f;
                 shotsPerBurst = 4;
-                restMin = 0.8f;
-                restMax = 1.4f;
-                fireRange = 14f;
+                restMin = 0.5f;
+                restMax = 1.0f;
+                fireRange = 16f;
                 maxWaitForPlayer = 3f;
-                reactionTime = 0.3f;
+                reactionTime = 0.25f;
+                leadAim = 1f;
+                punishOpenings = true;
+                checkLineOfSight = true;
+                finisherExtraShots = 2;
+                cautiousHpRatio = 0.3f;
                 break;
         }
     }
@@ -183,6 +214,7 @@ public class CpuController : MonoBehaviour
             if (found != null && found != gameObject) target = found.transform;
         }
         if (target != null) targetHealth = target.GetComponent<HealthSystem>();
+        if (target != null) targetRb = target.GetComponent<Rigidbody2D>();
         if (target != null)
         {
             foreach (WeaponSystem w in target.GetComponentsInChildren<WeaponSystem>(true))
@@ -241,8 +273,13 @@ public class CpuController : MonoBehaviour
         Vector2 tp = target.position;
         bool targetAlive = targetHealth == null || targetHealth.currentHealth > 0;
 
-        // 狙いは毎フレーム合わせる(少しブレを入れる)
-        if (weapon != null) weapon.CpuAimAt(tp + Vector2.up * 0.5f + aimOffset);
+        // 狙いは毎フレーム合わせる(先読み + 少しブレを入れる)
+        aimPoint = PredictTarget(me, tp);
+        if (weapon != null) weapon.CpuAimAt(aimPoint + aimOffset);
+
+        // 相手が見えるか(壁や床にさえぎられていないか)
+        canSee = !checkLineOfSight || LineOfSight(me, aimPoint);
+        blockedTime = canSee ? 0f : blockedTime + Time.deltaTime;
 
         // 動きは thinkInterval ごとに考え直す
         thinkTimer -= Time.deltaTime;
@@ -286,17 +323,20 @@ public class CpuController : MonoBehaviour
         fireTimer -= Time.deltaTime;
         if (fireTimer <= 0f)
         {
-            if (weapon != null && targetAlive && Vector2.Distance(me, tp) <= fireRange)
+            // 見えないときは、上から落とせる武器(GRENADE / BOUND / ROUTE)だけ撃つ
+            bool lobWeapon = IsLobWeapon(weapon != null ? weapon.CurrentIndex : -1);
+            if (weapon != null && targetAlive && Vector2.Distance(me, tp) <= fireRange && (canSee || lobWeapon))
             {
-                weapon.CpuShootAt(tp + Vector2.up * 0.5f);
+                weapon.CpuShootAt(aimPoint);
                 aimOffset = Random.insideUnitCircle * aimError;
                 shotsLeft--;
             }
 
             if (shotsLeft <= 0)
             {
-                shotsLeft = shotsPerBurst;
-                fireTimer = Random.Range(restMin, restMax);   // 休む
+                shotsLeft = shotsPerBurst + (TargetLow() ? finisherExtraShots : 0);
+                // 相手にすきがあるときは、ほとんど休まずに攻め続ける
+                fireTimer = TargetOpen() ? Random.Range(0.1f, 0.25f) : Random.Range(restMin, restMax);
             }
             else
             {
@@ -327,11 +367,12 @@ public class CpuController : MonoBehaviour
         bool targetNearEdge = tp.x < stageLeft + 2.5f || tp.x > stageRight - 2.5f;
 
         string[] order;
-        if (targetLow && targetNearEdge && dist < 9f) order = new[] { "GRENADE", "SHOTGUN", "NORMAL" };   // 押し出してとどめ
+        if (checkLineOfSight && !canSee) order = new[] { "GRENADE", "BOUND", "ROUTE" };                     // 壁の向こう
+        else if (targetLow && targetNearEdge && dist < 9f) order = new[] { "GRENADE", "SHOTGUN", "NORMAL" };   // 押し出してとどめ
         else if (dist < 4f) order = new[] { "SHOTGUN", "NORMAL", "BOUND" };                              // 近い
         else if (targetAbove) order = new[] { "BOUND", "ROUTE", "TRACK" };                               // 上の足場
-        else if (dist > 9f) order = new[] { "TRACK", "ROUTE", "NORMAL" };                                // 遠い
-        else order = new[] { "NORMAL", "BOUND", "TRACK" };                                               // ふつう
+        else if (dist > 9f) order = new[] { "LASER", "TRACK", "ROUTE", "NORMAL" };                                // 遠い
+        else order = new[] { "NORMAL", "LASER", "BOUND", "TRACK" };                                               // ふつう
 
         foreach (string want in order)
         {
@@ -351,9 +392,70 @@ public class CpuController : MonoBehaviour
         return -1;
     }
 
+    // ===== 先読み・見えるか・相手のすき =====
+    // 相手が今の速さで動き続けたら、弾が届くころにどこにいるか
+    Vector2 PredictTarget(Vector2 me, Vector2 tp)
+    {
+        Vector2 aim = tp + Vector2.up * 0.5f;
+        if (leadAim <= 0f || targetRb == null || weapon == null) return aim;
+        string n = weapon.GetWeaponName(weapon.CurrentIndex);
+        if (n != null && n.ToUpper().StartsWith("LASER")) return aim;   // レーザーは一瞬で届く
+        float speed = 20f;
+        float t = Mathf.Min(Vector2.Distance(me, aim) / speed, 0.6f);
+        Vector2 v = targetRb.linearVelocity;
+        v.y = Mathf.Clamp(v.y, -8f, 8f);   // ジャンプの上下は読みすぎない
+        return aim + v * t * leadAim;
+    }
+
+    bool LineOfSight(Vector2 me, Vector2 aim)
+    {
+        Vector2 from = weapon != null && weapon.firePoint != null ? (Vector2)weapon.firePoint.position : me + Vector2.up * 0.5f;
+        Vector2 d = aim - from;
+        RaycastHit2D[] hits = Physics2D.RaycastAll(from, d.normalized, d.magnitude);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        foreach (RaycastHit2D h in hits)
+        {
+            if (h.collider == null || h.collider.isTrigger) continue;
+            if (h.collider.transform.IsChildOf(transform)) continue;
+            if (target != null && h.collider.transform.IsChildOf(target)) return true;
+            if (h.collider.GetComponent<PlatformEffector2D>() != null) continue;   // すり抜け足場は弾も通る
+            return false;
+        }
+        return true;
+    }
+
+    bool IsLobWeapon(int i)
+    {
+        if (weapon == null || i < 0) return false;
+        string n = weapon.GetWeaponName(i);
+        if (n == null) return false;
+        n = n.ToUpper();
+        return n.StartsWith("GRENADE") || n.StartsWith("BOUND") || n.StartsWith("ROUTE");
+    }
+
+    bool TargetLow()
+    {
+        return targetHealth != null && targetHealth.currentHealth <= targetHealth.maxHealth * 0.3f;
+    }
+
+    // 相手が武器を持ち替え中・オーバーヒートで撃てないとき
+    bool TargetOpen()
+    {
+        if (!punishOpenings || targetWeapon == null) return false;
+        int c = targetWeapon.CurrentIndex;
+        return targetWeapon.IsSwitching || targetWeapon.IsLocked(c);
+    }
+
+    bool Cautious()
+    {
+        return health != null && cautiousHpRatio > 0f && health.currentHealth <= health.maxHealth * cautiousHpRatio && !TargetLow();
+    }
+
     // ===== 弾よけ =====
     // 近くで、自分の方へ飛んでくる弾があるか
     static readonly Collider2D[] nearby = new Collider2D[16];
+    private Vector2 incomingVel, incomingPos;
+    private bool incomingFromAbove;
 
     bool IncomingBullet(Vector2 me)
     {
@@ -371,7 +473,13 @@ public class CpuController : MonoBehaviour
             Vector2 v = brb != null ? brb.linearVelocity : Vector2.zero;
             if (v.sqrMagnitude < 4f) continue;
             Vector2 toMe = me + Vector2.up * 0.5f - (Vector2)c.transform.position;
-            if (Vector2.Dot(v.normalized, toMe.normalized) > 0.6f) return true;   // こっちに向かってくる
+            if (Vector2.Dot(v.normalized, toMe.normalized) > 0.6f)   // こっちに向かってくる
+            {
+                incomingVel = v;
+                incomingPos = c.transform.position;
+                incomingFromAbove = c.transform.position.y > me.y + 1.5f && v.y < 0f;
+                return true;
+            }
         }
         return false;
     }
@@ -381,7 +489,19 @@ public class CpuController : MonoBehaviour
         bool jump = false;
 
         // 向かってくる弾をよける(強さで確率が変わる)
-        if (dodgeChance > 0f && pc.IsGrounded && IncomingBullet(me) && Random.value < dodgeChance) jump = true;   // 空中ジャンプは復帰用に残す
+        if (dodgeChance > 0f && pc.IsGrounded && IncomingBullet(me) && Random.value < dodgeChance)
+        {
+            if (incomingFromAbove)
+            {
+                // 上から落ちてくる弾(グレネードなど)は、横に走ってよける
+                move = incomingPos.x > me.x ? -1f : 1f;   // 落ちてくる場所の反対へ
+                if (me.x < stageLeft + edgeMargin) move = 1f;
+                if (me.x > stageRight - edgeMargin) move = -1f;
+                pc.SetCpuInput(move, false);
+                return;
+            }
+            jump = true;   // 空中ジャンプは復帰用に残す
+        }
         float dx = tp.x - me.x;
         float dist = Mathf.Abs(dx);
         bool offStage = me.x < stageLeft || me.x > stageRight;
@@ -403,11 +523,16 @@ public class CpuController : MonoBehaviour
         }
         else
         {
-            if (dist > preferredDistance + distanceTolerance)
+            // 状況で間合いを変える:すきがある・相手が瀕死 → 近づく / 自分が瀕死 → 離れる
+            float want = preferredDistance;
+            if (TargetOpen() || TargetLow()) want = Mathf.Max(2.5f, preferredDistance - 2f);
+            else if (Cautious()) want = preferredDistance + 3f;
+
+            if (dist > want + distanceTolerance)
             {
                 move = Mathf.Sign(dx);          // 遠いので近づく
             }
-            else if (dist < preferredDistance - distanceTolerance)
+            else if (dist < want - distanceTolerance)
             {
                 move = -Mathf.Sign(dx);         // 近すぎるので離れる
             }
@@ -462,6 +587,13 @@ public class CpuController : MonoBehaviour
 
             // 相手が上の足場にいたら、ジャンプで追いかける
             if (tp.y > me.y + 1.5f && pc.IsGrounded) jump = true;
+
+            // しばらく相手が見えないときは、ジャンプして位置を変える
+            if (blockedTime > 0.8f && pc.IsGrounded)
+            {
+                jump = true;
+                blockedTime = 0f;
+            }
 
             // ときどきランダムにジャンプして、弾をよける
             if (Random.value < randomJumpChance) jump = true;

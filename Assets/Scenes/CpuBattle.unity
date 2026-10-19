@@ -2318,71 +2318,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &943831500
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 943831501}
-  - component: {fileID: 943831503}
-  - component: {fileID: 943831502}
-  m_Layer: 0
-  m_Name: Bullet_Laser
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &943831501
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 943831500}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 430.7365, y: 181.93607, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &943831502
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 943831500}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2ddba81606fc07741b97248e89efe8f3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  displayName: LASER
-  heatPerShot: 45
-  fireInterval: 1.2
---- !u!114 &943831503
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 943831500}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a38f9d092810fd34cabf1b27d80a0531, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  damage: 16
-  knockbackForce: 7
-  maxLength: 30
-  fadeTime: 0.22
-  color: {r: 0.30980393, g: 0.8901961, b: 0.9411765, a: 1}
 --- !u!1001 &944296208
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2540,7 +2475,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: bulletPrefabs.Array.size
-      value: 6
+      value: 7
       objectReference: {fileID: 0}
     - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: 'bulletPrefabs.Array.data[3]'
@@ -2554,6 +2489,10 @@ PrefabInstance:
       propertyPath: 'bulletPrefabs.Array.data[5]'
       value: 
       objectReference: {fileID: 2915996726960370181, guid: 18f18a0050c1fe846849d54197e65e39, type: 3}
+    - target: {fileID: 2470113604790656728, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
+      propertyPath: 'bulletPrefabs.Array.data[6]'
+      value: 
+      objectReference: {fileID: 7509961415037015863, guid: 33ab0452143feb94486fe789323a81f2, type: 3}
     - target: {fileID: 3647344082954958041, guid: e4a701ed1b694b24391f9bde51a60ed5, type: 3}
       propertyPath: m_LocalPosition.x
       value: 4
@@ -3933,4 +3872,3 @@ SceneRoots:
   - {fileID: 158662701}
   - {fileID: 745914637}
   - {fileID: 467587423}
-  - {fileID: 943831501}
