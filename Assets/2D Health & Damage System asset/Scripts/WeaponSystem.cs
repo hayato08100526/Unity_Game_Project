@@ -401,6 +401,7 @@ public class WeaponSystem : NetworkBehaviour
     // 相手の位置を指定して撃つ(ROUTE のときは、相手の上を回り込む線を自動で描く)
     public void CpuShootAt(Vector2 target)
     {
+        if (FightNotStarted) return;
         if (IsRouteWeapon(currentWeaponIndex) && firePoint != null)
         {
             Vector2 start = firePoint.position;
@@ -473,6 +474,7 @@ public class WeaponSystem : NetworkBehaviour
 
         CancelRoute();
         currentWeaponIndex = index;
+        if (!isCpu) SoundManager.Play("switch", 0.7f);
         switchEndTime = Time.time + CurrentSwitchTime; // 持ち替え中は撃てない
         UpdateWeaponUI();
     }
@@ -522,8 +524,13 @@ public class WeaponSystem : NetworkBehaviour
     }
 
     // 撃つたびの熱と連射間隔(100 でオーバーヒート)
+    // 最後に撃った時刻(CPU が「プレイヤーが撃ったか」を知るのに使う)
+    public float LastShotTime { get; private set; } = -999f;
+
     void ApplyShotCost(int i)
     {
+        LastShotTime = Time.time;
+        SoundManager.PlayShot(GetWeaponName(i), isCpu);
         heat[i] += HeatPerShot(i);
         nextShotTime[i] = Time.time + FireInterval(i) * (ArmBroken ? armBrokenFireIntervalMul : 1f);
 
@@ -531,6 +538,7 @@ public class WeaponSystem : NetworkBehaviour
         {
             heat[i] = 100f;
             lockedUntil[i] = Time.time + overheatLockTime;
+            SoundManager.Play("overheat", isCpu ? 0.6f : 1f);
 
             // 頭上に OVERHEAT を出す
             if (MatchManager.Instance != null)
@@ -538,8 +546,12 @@ public class WeaponSystem : NetworkBehaviour
         }
     }
 
+    // 試合が始まる前(強さ選び・カウントダウン中)とポーズ中は撃てない
+    bool FightNotStarted => MatchManager.Instance != null && !MatchManager.Instance.IsFighting;
+
     void ShootCurrentWeapon()
     {
+        if (FightNotStarted) return;
         if (firePoint == null) return;
         if (!CanShoot()) return;
 

@@ -167,6 +167,7 @@ public class HealthSystem : NetworkBehaviour
             if (currentHealth <= 0 || IsInvincible) return;
 
             currentHealth = Mathf.Max(0, currentHealth - damage);
+            SoundManager.Play(lastHitWasHead ? "hit_head" : "hit", 0.9f, 0.08f);
             UpdateHPUI();
 
             // HP ‚ªŒ¸‚Á‚Ä‚¢‚é‚Ù‚Ç‹­‚­‚Á”ò‚Ô

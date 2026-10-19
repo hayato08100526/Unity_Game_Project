@@ -194,6 +194,7 @@ public class PlayerController : NetworkBehaviour
 
     void Jump()
     {
+        if (!isCpu) SoundManager.Play("jump", 0.6f, 0.05f);
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * JumpMul);
         isGrounded = false;
     }

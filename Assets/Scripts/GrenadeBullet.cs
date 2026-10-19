@@ -86,6 +86,7 @@ public class GrenadeBullet : MonoBehaviour
 
         // ”š”­‚Å‰æ–Ê‚ð—h‚ç‚·
         CameraFollow.Shake(0.25f, 0.2f);
+        SoundManager.Play("explosion", 0.9f, 0.05f);
 
         foreach (Collider2D col in Physics2D.OverlapCircleAll(center, radius))
         {

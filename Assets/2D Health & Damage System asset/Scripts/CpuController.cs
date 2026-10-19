@@ -44,6 +44,14 @@ public class CpuController : MonoBehaviour
     public float restMin = 1.5f;
     public float restMax = 2.5f;
 
+    [Header("先手はプレイヤーに譲る")]
+    [Tooltip("オン:試合開始のあと、プレイヤーが1発撃つまで CPU は撃たない")]
+    public bool waitForPlayerFirstShot = false;
+    [Tooltip("プレイヤーがずっと撃たないときは、この秒数がたったら CPU も撃ち始める")]
+    public float maxWaitForPlayer = 5f;
+    [Tooltip("プレイヤーが撃ってから、CPU が撃ち返すまでの時間(秒)")]
+    public float reactionTime = 0.6f;
+
     private PlayerController pc;
     private WeaponSystem weapon;
     private HealthSystem health;
@@ -59,6 +67,9 @@ public class CpuController : MonoBehaviour
     private Vector2 aimOffset;
     private int shotsLeft;
     private bool wasDead;
+    private WeaponSystem targetWeapon;
+    private bool waitingForPlayer;
+    private float waitStartTime;
 
     public enum Difficulty { Easy, Normal, Hard }
 
@@ -75,11 +86,13 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.05f;
                 preferredDistance = 6f;
                 weaponChangeInterval = 8f;
-                startDelay = 3f;
+                startDelay = 1.5f;
                 shotsPerBurst = 2;
                 restMin = 2.5f;
                 restMax = 3.5f;
                 fireRange = 10f;
+                maxWaitForPlayer = 8f;
+                reactionTime = 1.0f;
                 break;
 
             case Difficulty.Normal:
@@ -90,11 +103,13 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.1f;
                 preferredDistance = 5f;
                 weaponChangeInterval = 6f;
-                startDelay = 2f;
+                startDelay = 1f;
                 shotsPerBurst = 3;
                 restMin = 1.5f;
                 restMax = 2.5f;
                 fireRange = 12f;
+                maxWaitForPlayer = 5f;
+                reactionTime = 0.6f;
                 break;
 
             case Difficulty.Hard:
@@ -105,11 +120,13 @@ public class CpuController : MonoBehaviour
                 randomJumpChance = 0.18f;
                 preferredDistance = 4.5f;
                 weaponChangeInterval = 4f;
-                startDelay = 1f;
+                startDelay = 0.5f;
                 shotsPerBurst = 4;
                 restMin = 0.8f;
                 restMax = 1.4f;
                 fireRange = 14f;
+                maxWaitForPlayer = 3f;
+                reactionTime = 0.3f;
                 break;
         }
     }
@@ -139,9 +156,21 @@ public class CpuController : MonoBehaviour
             if (found != null && found != gameObject) target = found.transform;
         }
         if (target != null) targetHealth = target.GetComponent<HealthSystem>();
+        if (target != null)
+        {
+            foreach (WeaponSystem w in target.GetComponentsInChildren<WeaponSystem>(true))
+            {
+                if (targetWeapon == null) targetWeapon = w;
+                if (w.gameObject.activeInHierarchy) { targetWeapon = w; break; }
+            }
+        }
 
         weaponTimer = weaponChangeInterval;
         ResetAttack();
+
+        // 試合が始まったら、プレイヤーの1発目を待つ(待ち始めの時刻は、最初に動き出したときに決める)
+        waitingForPlayer = waitForPlayerFirstShot;
+        waitStartTime = -1f;
     }
 
     // 試合が始まったとき(MatchManager がこのスクリプトをオンにしたとき)
@@ -159,6 +188,13 @@ public class CpuController : MonoBehaviour
 
     void Update()
     {
+        // カウントダウンが終わるまで(とポーズ中)は、動かないし撃たない
+        if (MatchManager.Instance != null && !MatchManager.Instance.IsFighting)
+        {
+            pc.SetCpuInput(0f, false);
+            return;
+        }
+
         // 相手がいない、または自分がやられているときは何もしない
         if (target == null || (health != null && health.currentHealth <= 0))
         {
@@ -201,6 +237,24 @@ public class CpuController : MonoBehaviour
         }
 
         // 射撃
+        // 先手はプレイヤーに譲る:プレイヤーが撃つ(か、待ちすぎる)まで撃たない
+        if (waitingForPlayer)
+        {
+            if (waitStartTime < 0f) waitStartTime = Time.time;   // FIGHT の瞬間
+            bool playerShot = targetWeapon != null && targetWeapon.LastShotTime >= waitStartTime;
+            bool waitedTooLong = Time.time - waitStartTime >= maxWaitForPlayer;
+            if (playerShot || waitedTooLong)
+            {
+                waitingForPlayer = false;
+                fireTimer = playerShot ? reactionTime : Random.Range(0.2f, 0.6f);
+                shotsLeft = shotsPerBurst;
+            }
+            else
+            {
+                return;   // 動きはするが、まだ撃たない
+            }
+        }
+
         // 射撃:shotsPerBurst 発撃ったら、restMin〜restMax 秒休む
         fireTimer -= Time.deltaTime;
         if (fireTimer <= 0f)

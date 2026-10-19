@@ -46,6 +46,15 @@ public class MatchManager : MonoBehaviour
     // ポーズ中か(Esc で切り替え)
     private bool paused = false;
 
+    // カウントダウンが終わって試合中(ポーズ中でない)なら true。CPU と銃はこれが true のときだけ撃てる
+    public bool IsFighting => state == State.Playing && !paused;
+
+    // ===== 戦績(リザルト画面に出す) [0] = 自分, [1] = CPU =====
+    private readonly int[] damageTaken = new int[2];
+    private readonly int[] partsLost = new int[2];
+    private readonly int[] lastHp = { -1, -1 };
+    private float fightTime;
+
     // シーンを読み込み直しても覚えておく(再戦用)
     private static int savedDifficulty = -1;
     private static bool skipSelect = false;
@@ -99,6 +108,18 @@ public class MatchManager : MonoBehaviour
                     : part == HealthSystem.Part.Arm ? "ARM BROKEN"
                     : "LEG BROKEN";
         ShowPopup(who.transform, text, new Color32(0xFF, 0x8A, 0x3D, 0xFF), false);
+        SoundManager.Play("break");
+        if (who == player) partsLost[0]++;
+        else if (who == cpu) partsLost[1]++;
+    }
+
+    // HP が減った分を「受けたダメージ」として数える(復活で増えたときは数えない)
+    void TrackDamage(HealthSystem fighter, int i)
+    {
+        if (fighter == null) return;
+        int hp = fighter.currentHealth;
+        if (lastHp[i] >= 0 && hp < lastHp[i]) damageTaken[i] += lastHp[i] - hp;
+        lastHp[i] = hp;
     }
 
     // 頭上に文字を出す(ダメージの数字は small = true で小さく、少し横にずらす)
@@ -158,6 +179,7 @@ public class MatchManager : MonoBehaviour
 
         state = State.Countdown;
         countdownLeft = countdownTime;
+        SoundManager.Play("count");   // 最初の「3」
     }
 
     HealthSystem FindFighter(string objectName)
@@ -206,9 +228,15 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case State.Countdown:
-                countdownLeft -= Time.deltaTime;
+                {
+                    int before = Mathf.CeilToInt(countdownLeft);
+                    countdownLeft -= Time.deltaTime;
+                    int after = Mathf.CeilToInt(countdownLeft);
+                    if (after != before && after > 0) SoundManager.Play("count");
+                }
                 if (countdownLeft <= 0f)
                 {
+                    SoundManager.Play("fight");
                     state = State.Playing;
                     fightTextTimer = 0.8f;
                     SetControl(player, true);
@@ -218,6 +246,9 @@ public class MatchManager : MonoBehaviour
 
             case State.Playing:
                 if (fightTextTimer > 0f) fightTextTimer -= Time.deltaTime;
+                fightTime += Time.deltaTime;
+                TrackDamage(player, 0);
+                TrackDamage(cpu, 1);
 
                 timeLeft -= Time.deltaTime;
                 if (timeLeft <= 0f)
@@ -241,6 +272,7 @@ public class MatchManager : MonoBehaviour
 
     void Pause()
     {
+        SoundManager.Play("ui");
         paused = true;
         Time.timeScale = 0f;
         SetControl(player, false);
@@ -249,6 +281,7 @@ public class MatchManager : MonoBehaviour
 
     void Resume()
     {
+        SoundManager.Play("ui");
         paused = false;
         Time.timeScale = 1f;
         // カウントダウン中に止めたときは、まだ動けないままにする
@@ -295,6 +328,9 @@ public class MatchManager : MonoBehaviour
         ShowPopup(fighter.transform, "KO!", isPlayer ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF), false);
 
         fighter.KnockOut();
+        SoundManager.Play("ko");
+        // 場外 KO で HP が 0 にされた分は、ダメージに数えない
+        lastHp[isPlayer ? 0 : 1] = fighter.currentHealth;
 
         if (isPlayer)
         {
@@ -341,6 +377,7 @@ public class MatchManager : MonoBehaviour
 
     void EndMatch(string text)
     {
+        SoundManager.Play(text == "YOU WIN" ? "win" : "lose");
         state = State.Result;
         resultText = text;
         SetControl(player, false);
@@ -432,14 +469,104 @@ public class MatchManager : MonoBehaviour
         }
         else if (state == State.Result)
         {
-            bigStyle.normal.textColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
-            GUI.Label(center, resultText, bigStyle);
-            midStyle.normal.textColor = white;
-            GUI.Label(new Rect(0, center.yMax, Screen.width, unit * 1.2f), "R : REMATCH    D : CHANGE LEVEL    T : TITLE", midStyle);
+            DrawResult(unit, cyan, amber, white);
         }
 
         // ポーズ画面(一番上に重ねる)
         if (paused) DrawPauseMenu(unit, cyan, white);
+    }
+
+    // ===== リザルト画面(勝敗・戦績・ボタン) =====
+    void DrawResult(float unit, Color cyan, Color amber, Color white)
+    {
+        TrackDamage(player, 0);   // 最後の一撃も数える
+        TrackDamage(cpu, 1);
+
+        Color card = new Color32(0x0D, 0x11, 0x17, 0xF2);
+        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
+        Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
+
+        // 画面を暗くする
+        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xB4));
+
+        // 勝敗
+        Color resultColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
+        bigStyle.normal.textColor = resultColor;
+        GUI.Label(new Rect(0, Screen.height * 0.08f, Screen.width, unit * 3f), resultText, bigStyle);
+
+        // 戦績カード
+        float w = unit * 16f, rowH = unit * 1.05f;
+        string[] labels = { "DAMAGE DEALT", "KO", "PARTS BROKEN", "STOCKS LEFT" };
+        int[] you = { damageTaken[1], stockCount - cpuStocks, partsLost[1], playerStocks };
+        int[] them = { damageTaken[0], stockCount - playerStocks, partsLost[0], cpuStocks };
+
+        float x = (Screen.width - w) / 2f;
+        float y = Screen.height * 0.08f + unit * 3.4f;
+        float h = rowH * (labels.Length + 1) + unit * 1.4f;
+        Rect cardRect = new Rect(x, y, w, h);
+        Fill(cardRect, card);
+        Border(cardRect, line, 1f);
+        Fill(new Rect(x, y, w, unit * 0.1f), resultColor);
+
+        float colL = x + w * 0.42f, colR = x + w * 0.74f, colW = w * 0.22f;
+        float ty = y + unit * 0.5f;
+
+        // 見出し(YOU / CPU)
+        smallStyle.alignment = TextAnchor.MiddleCenter;
+        smallStyle.normal.textColor = cyan;
+        GUI.Label(new Rect(colL, ty, colW, rowH), "YOU", smallStyle);
+        smallStyle.normal.textColor = amber;
+        GUI.Label(new Rect(colR, ty, colW, rowH), "CPU", smallStyle);
+        ty += rowH;
+
+        for (int i = 0; i < labels.Length; i++)
+        {
+            Fill(new Rect(x + unit * 0.6f, ty, w - unit * 1.2f, 1f), line);
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+            tinyStyle.normal.textColor = grey;
+            GUI.Label(new Rect(x + unit * 0.8f, ty, w * 0.4f, rowH), labels[i], tinyStyle);
+
+            // 多い方を明るく(STOCKS LEFT 以外も「多い方が良い」項目)
+            bool youBetter = you[i] > them[i], themBetter = them[i] > you[i];
+            smallStyle.normal.textColor = youBetter ? white : grey;
+            GUI.Label(new Rect(colL, ty, colW, rowH), you[i].ToString(), smallStyle);
+            smallStyle.normal.textColor = themBetter ? white : grey;
+            GUI.Label(new Rect(colR, ty, colW, rowH), them[i].ToString(), smallStyle);
+            ty += rowH;
+        }
+        smallStyle.alignment = TextAnchor.MiddleLeft;
+
+        // 試合時間と強さ
+        int m = Mathf.FloorToInt(fightTime / 60f), sec = Mathf.FloorToInt(fightTime % 60f);
+        string level = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = grey;
+        GUI.Label(new Rect(x, ty + unit * 0.15f, w, unit * 0.7f), "TIME  " + m + ":" + sec.ToString("00") + "      CPU  " + level, tinyStyle);
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
+
+        // ボタン(クリックでも、R / D / T キーでも)
+        string[] btn = { "REMATCH  [R]", "CHANGE LEVEL  [D]", "TITLE  [T]" };
+        float bw = unit * 6.2f, bh = unit * 1.4f, gap = unit * 0.4f;
+        float bx = (Screen.width - (bw * 3 + gap * 2)) / 2f;
+        float by = y + h + unit * 0.8f;
+        for (int i = 0; i < 3; i++)
+        {
+            Rect r = new Rect(bx + i * (bw + gap), by, bw, bh);
+            bool hover = r.Contains(Event.current.mousePosition);
+            bool primary = i == 0;
+            Fill(r, primary ? (hover ? white : cyan) : card);
+            if (!primary) Border(r, hover ? cyan : line, hover ? 2f : 1f);
+            tinyStyle.alignment = TextAnchor.MiddleCenter;
+            tinyStyle.normal.textColor = primary ? (Color)new Color32(0x03, 0x14, 0x17, 0xFF) : (hover ? cyan : white);
+            GUI.Label(r, btn[i], tinyStyle);
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+            if (GUI.Button(r, GUIContent.none, GUIStyle.none))
+            {
+                if (i == 0) Reload(true);
+                else if (i == 1) Reload(false);
+                else GoToTitle();
+            }
+        }
     }
 
     void DrawPauseMenu(float unit, Color accent, Color white)
