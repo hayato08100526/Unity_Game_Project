@@ -17,6 +17,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/2D Health & Damage System asset/Scenes/OnlineLobbyScene.unity
     guid: 8b1eb65459f25cc44923a397e71934ac
+  - enabled: 1
+    path: Assets/Scenes/OnlineBattle.unity
+    guid: 32f67083673c94f48a539174fb150d3a
   - enabled: 0
     path: Assets/Scenes/TitleScene.unity
     guid: 0b6f1d7dea7b739428762eb7a9658c22

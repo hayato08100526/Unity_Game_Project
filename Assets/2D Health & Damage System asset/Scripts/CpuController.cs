@@ -524,15 +524,15 @@ public class CpuController : MonoBehaviour
         else
         {
             // 状況で間合いを変える:すきがある・相手が瀕死 → 近づく / 自分が瀕死 → 離れる
-            float want = preferredDistance;
-            if (TargetOpen() || TargetLow()) want = Mathf.Max(2.5f, preferredDistance - 2f);
-            else if (Cautious()) want = preferredDistance + 3f;
+            float wantDist = preferredDistance;
+            if (TargetOpen() || TargetLow()) wantDist = Mathf.Max(2.5f, preferredDistance - 2f);
+            else if (Cautious()) wantDist = preferredDistance + 3f;
 
-            if (dist > want + distanceTolerance)
+            if (dist > wantDist + distanceTolerance)
             {
                 move = Mathf.Sign(dx);          // 遠いので近づく
             }
-            else if (dist < want - distanceTolerance)
+            else if (dist < wantDist - distanceTolerance)
             {
                 move = -Mathf.Sign(dx);         // 近すぎるので離れる
             }

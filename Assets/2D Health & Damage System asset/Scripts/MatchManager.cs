@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Unity.Netcode;
 
 // CPU 対戦の試合を管理する(カウントダウン、場外KO、ストック、リスポーン、時間切れ、勝敗)
 // シーンに空のオブジェクトを作って付ける
@@ -51,7 +52,19 @@ public class MatchManager : MonoBehaviour
     private bool paused = false;
 
     // カウントダウンが終わって試合中(ポーズ中でない)なら true。CPU と銃はこれが true のときだけ撃てる
-    public bool IsFighting => state == State.Playing && !paused;
+    // (オンラインではポーズしても試合は止まらないので、ポーズ中も true)
+    public bool IsFighting => state == State.Playing && (!paused || IsOnlineMode);
+
+    // ===== オンライン対戦 =====
+    // 同じオブジェクトに OnlineMatch が付いていれば、オンライン対戦として動く
+    private OnlineMatch net;
+    public bool IsOnlineMode => net != null;
+    private bool IsHostOnline => net != null && net.IsSpawned && net.IsServer;
+    private bool fightersFound;
+    private bool opponentLeft;
+    private int appliedStage = -1;
+    private readonly bool[] hostWaiting = new bool[2];
+    private readonly float[] graceUntil = new float[2];
 
     // ===== 戦績(リザルト画面に出す) [0] = 自分, [1] = CPU =====
     private readonly int[] damageTaken = new int[2];
@@ -107,6 +120,7 @@ public class MatchManager : MonoBehaviour
     void OnDestroy()
     {
         if (Instance == this) Instance = null;
+        if (net != null) net.OnKo -= OnNetKo;
         if (player != null) player.OnPartBroken -= HandlePartBroken;
         if (cpu != null) cpu.OnPartBroken -= HandlePartBroken;
     }
@@ -152,6 +166,19 @@ public class MatchManager : MonoBehaviour
 
         // 対戦の BGM
         SoundManager.PlayMusic("bgm_battle");
+
+        // オンライン対戦:ロボットはあとから出てくるので、ここでは探さない(Update で探す)
+        net = GetComponent<OnlineMatch>();
+        if (net != null)
+        {
+            net.OnKo += OnNetKo;
+            playerStocks = stockCount;
+            cpuStocks = stockCount;
+            timeLeft = matchTime;
+            state = State.SelectStage;
+            menuIndex = savedStage;
+            return;
+        }
 
         // アイテムを出す係(REPAIR / COOLANT)
         if (spawnItems && GetComponent<ItemSpawner>() == null) gameObject.AddComponent<ItemSpawner>();
@@ -222,6 +249,13 @@ public class MatchManager : MonoBehaviour
 
     void ChooseStage(int index)
     {
+        // オンライン:ステージを決められるのはホストだけ(決めたら2人の画面に同じステージが出る)
+        if (IsOnlineMode)
+        {
+            if (IsHostOnline && fightersFound && state == State.SelectStage) HostBegin(index);
+            return;
+        }
+
         savedStage = index;
         ApplyStage(index);
 
@@ -342,6 +376,12 @@ public class MatchManager : MonoBehaviour
 
     void Update()
     {
+        if (IsOnlineMode)
+        {
+            OnlineUpdate();
+            return;
+        }
+
         // ===== ポーズ =====
         if (state == State.Countdown || state == State.Playing)
         {
@@ -428,7 +468,7 @@ public class MatchManager : MonoBehaviour
         SoundManager.Play("ui");
         SoundManager.DuckMusic(0.4f);
         paused = true;
-        Time.timeScale = 0f;
+        if (!IsOnlineMode) Time.timeScale = 0f;   // オンラインでは時間を止めない(相手は動いている)
         SetControl(player, false);
         SetControl(cpu, false);
     }
@@ -452,11 +492,29 @@ public class MatchManager : MonoBehaviour
         if (!Application.CanStreamedLevelBeLoaded(titleSceneName)) return;
         paused = false;
         Time.timeScale = 1f;
+
+        // オンライン:通信を切ってから戻る(NetworkManager も消して、次にまた最初からつなげるようにする)
+        if (IsOnlineMode && NetworkManager.Singleton != null)
+        {
+            NetworkManager nm = NetworkManager.Singleton;
+            nm.Shutdown();
+            Destroy(nm.gameObject);
+        }
         SceneManager.LoadScene(titleSceneName);
     }
 
     void Reload(bool sameDifficulty)
     {
+        // オンライン:再戦できるのはホストだけ。2人とも同じシーンを読み込み直す
+        if (IsOnlineMode)
+        {
+            if (!IsHostOnline) return;
+            paused = false;
+            skipSelect = true;   // 同じステージで、すぐに始める
+            NetworkManager.Singleton.SceneManager.LoadScene(SceneManager.GetActiveScene().name, LoadSceneMode.Single);
+            return;
+        }
+
         paused = false;
         skipSelect = sameDifficulty;
         Time.timeScale = 1f;
@@ -544,8 +602,8 @@ public class MatchManager : MonoBehaviour
         SetControl(player, false);
         SetControl(cpu, false);
 
-        // 戦績に記録(新記録ならリザルトに出す)
-        recordNews = Records.Report(savedDifficulty, text, fightTime);
+        // 戦績に記録(新記録ならリザルトに出す)。オンライン対戦は CPU の戦績には入れない
+        recordNews = IsOnlineMode ? "" : Records.Report(savedDifficulty, text, fightTime);
     }
 
     private string recordNews = "";
@@ -601,17 +659,18 @@ public class MatchManager : MonoBehaviour
         float k = Screen.height / 720f;   // 1280x720 で作ったデザインを画面の大きさに合わせる
         DrawTimer(k, amber, white);
 
-        string cpuSub = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
-        DrawHudPanel(false, k, "P1", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
+        string cpuSub = IsOnlineMode ? "ONLINE" : (savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "");
+        bool meHost = !IsOnlineMode || IsHostOnline;
+        DrawHudPanel(false, k, meHost ? "P1" : "P2", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
                      cyan, new Color32(0x03, 0x14, 0x17, 0xFF));
-        DrawHudPanel(true, k, "P2", "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
+        DrawHudPanel(true, k, meHost ? "P2" : "P1", IsOnlineMode ? "RIVAL" : "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
                      amber, new Color32(0x1F, 0x13, 0x00, 0xFF));
 
         // 頭の上のマーカー(画面の外にいるときは、ふちに矢印)
         if (showMarkers && state != State.SelectDifficulty && state != State.SelectStage)
         {
-            DrawMarker(player, playerWaiting, "P1", cyan, new Color32(0x03, 0x14, 0x17, 0xFF), unit);
-            DrawMarker(cpu, cpuWaiting, "CPU", amber, new Color32(0x1F, 0x13, 0x00, 0xFF), unit);
+            DrawMarker(player, playerWaiting, IsOnlineMode ? "YOU" : "P1", cyan, new Color32(0x03, 0x14, 0x17, 0xFF), unit);
+            DrawMarker(cpu, cpuWaiting, IsOnlineMode ? "RIVAL" : "CPU", amber, new Color32(0x1F, 0x13, 0x00, 0xFF), unit);
         }
 
         // 部位が壊れたときの文字(頭上に出して、上に浮かびながら消える)
@@ -622,6 +681,16 @@ public class MatchManager : MonoBehaviour
         if (state == State.SelectDifficulty)
         {
             DrawDifficultySelect(unit, cyan, white);
+        }
+        else if (IsOnlineMode && state != State.Result && (!fightersFound || (state == State.SelectStage && !IsHostOnline)))
+        {
+            // オンライン:相手を待っている / ホストがステージを選んでいる
+            Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xD8));
+            midStyle.normal.textColor = white;
+            string msg = !fightersFound ? "WAITING FOR PLAYERS..." : "HOST IS CHOOSING THE STAGE...";
+            bool blink = Mathf.FloorToInt(Time.unscaledTime * 2f) % 2 == 0;
+            midStyle.normal.textColor = blink ? white : cyan;
+            GUI.Label(new Rect(0, Screen.height * 0.42f, Screen.width, unit * 1.4f), msg, midStyle);
         }
         else if (state == State.SelectStage)
         {
@@ -696,7 +765,7 @@ public class MatchManager : MonoBehaviour
         smallStyle.normal.textColor = cyan;
         GUI.Label(new Rect(colL, ty, colW, rowH), "YOU", smallStyle);
         smallStyle.normal.textColor = amber;
-        GUI.Label(new Rect(colR, ty, colW, rowH), "CPU", smallStyle);
+        GUI.Label(new Rect(colR, ty, colW, rowH), IsOnlineMode ? "RIVAL" : "CPU", smallStyle);
         ty += rowH;
 
         for (int i = 0; i < labels.Length; i++)
@@ -721,15 +790,19 @@ public class MatchManager : MonoBehaviour
         string level = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
         tinyStyle.alignment = TextAnchor.MiddleCenter;
         tinyStyle.normal.textColor = grey;
-        GUI.Label(new Rect(x, ty + unit * 0.15f, w, unit * 0.7f), "TIME  " + m + ":" + sec.ToString("00") + "      CPU  " + level, tinyStyle);
+        string info = IsOnlineMode ? "TIME  " + m + ":" + sec.ToString("00") + "      ONLINE MATCH" : "TIME  " + m + ":" + sec.ToString("00") + "      CPU  " + level;
+        GUI.Label(new Rect(x, ty + unit * 0.15f, w, unit * 0.7f), info, tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
 
         // ボタン(クリックでも、R / D / T キーでも)
-        string[] btn = { "REMATCH  [R]", "CHANGE LEVEL  [D]", "TITLE  [T]" };
+        string[] btn = IsOnlineMode
+            ? new[] { IsHostOnline && !opponentLeft ? "REMATCH  [R]" : (opponentLeft ? "OPPONENT LEFT" : "WAITING FOR HOST"), "LEAVE  [T]" }
+            : new[] { "REMATCH  [R]", "CHANGE LEVEL  [D]", "TITLE  [T]" };
+        int nb = btn.Length;
         float bw = unit * 6.2f, bh = unit * 1.4f, gap = unit * 0.4f;
-        float bx = (Screen.width - (bw * 3 + gap * 2)) / 2f;
+        float bx = (Screen.width - (bw * nb + gap * (nb - 1))) / 2f;
         float by = y + h + unit * 0.8f;
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < nb; i++)
         {
             Rect r = new Rect(bx + i * (bw + gap), by, bw, bh);
             bool hover = r.Contains(Event.current.mousePosition);
@@ -742,7 +815,12 @@ public class MatchManager : MonoBehaviour
             tinyStyle.alignment = TextAnchor.MiddleLeft;
             if (GUI.Button(r, GUIContent.none, GUIStyle.none))
             {
-                if (i == 0) Reload(true);
+                if (IsOnlineMode)
+                {
+                    if (i == 0) Reload(true);
+                    else GoToTitle();
+                }
+                else if (i == 0) Reload(true);
                 else if (i == 1) Reload(false);
                 else GoToTitle();
             }
@@ -760,7 +838,9 @@ public class MatchManager : MonoBehaviour
         bigStyle.normal.textColor = white;
         GUI.Label(new Rect(0, Screen.height * 0.16f, Screen.width, unit * 3f), "PAUSE", bigStyle);
 
-        string[] labels = { "RESUME   [ESC]", "RETRY   [R]", "TITLE   [T]" };
+        string[] labels = IsOnlineMode
+            ? new[] { "RESUME   [ESC]", "LEAVE MATCH   [T]" }
+            : new[] { "RESUME   [ESC]", "RETRY   [R]", "TITLE   [T]" };
         float w = unit * 9f, h = unit * 1.6f, gap = unit * 0.4f;
         float x = (Screen.width - w) / 2f;
         float y0 = Screen.height * 0.42f;
@@ -778,7 +858,7 @@ public class MatchManager : MonoBehaviour
             if (GUI.Button(r, GUIContent.none, GUIStyle.none))
             {
                 if (i == 0) Resume();
-                else if (i == 1) Reload(true);
+                else if (i == 1 && !IsOnlineMode) Reload(true);
                 else GoToTitle();
             }
         }
@@ -1248,6 +1328,236 @@ public class MatchManager : MonoBehaviour
 
         smallStyle.alignment = TextAnchor.MiddleLeft;
         tinyStyle.alignment = TextAnchor.MiddleLeft;
+    }
+
+    // =====================================================================
+    // オンライン対戦
+    // =====================================================================
+    void OnlineUpdate()
+    {
+        if (net == null || !net.IsSpawned) return;
+
+        // 2人のロボットを探す(自分 = player / 相手 = cpu)
+        if (!fightersFound) FindOnlineFighters();
+        else if ((player == null || cpu == null) && state != State.Result)
+        {
+            opponentLeft = true;   // 相手が抜けた
+        }
+
+        // ポーズ(自分の画面だけ。試合は止まらない)
+        if (state == State.Countdown || state == State.Playing)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.JoystickButton7))
+            {
+                if (paused) Resume(); else Pause();
+            }
+            else if (paused)
+            {
+                if (Input.GetKeyDown(KeyCode.JoystickButton0)) Resume();
+                else if (Input.GetKeyDown(KeyCode.T) || Input.GetKeyDown(KeyCode.JoystickButton1)) GoToTitle();
+            }
+        }
+
+        // ホストが決めたステージを、自分の画面にも出す
+        if (net.Stage >= 0 && net.Stage != appliedStage)
+        {
+            appliedStage = net.Stage;
+            savedStage = net.Stage;
+            ApplyStage(net.Stage);
+            var fx = FindFirstObjectByType<BackgroundFX>();
+            if (fx != null) fx.SetMood(net.Stage);
+        }
+
+        // 試合の状態をホストに合わせる
+        State ns = (State)(net.State + 1);
+        if (opponentLeft) ns = State.Result;
+        if (ns != state) OnlineStateChanged(ns);
+
+        // ストックは2人とも同じ値を見る
+        if (fightersFound && player != null && cpu != null)
+        {
+            playerStocks = net.StocksOf(player.OwnerClientId);
+            cpuStocks = net.StocksOf(cpu.OwnerClientId);
+        }
+        playerWaiting = player != null && player.currentHealth <= 0 && state == State.Playing;
+        cpuWaiting = cpu != null && cpu.currentHealth <= 0 && state == State.Playing;
+
+        switch (state)
+        {
+            case State.SelectStage:
+                if (!IsHostOnline || !fightersFound) break;
+                if (skipSelect) { skipSelect = false; ChooseStage(savedStage); break; }   // 再戦は同じステージ
+                if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseStage(0);
+                else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseStage(1);
+                else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseStage(2);
+                else if (MenuMove(stageNames.Length)) { }
+                else if (MenuConfirm()) ChooseStage(menuIndex);
+                break;
+
+            case State.Countdown:
+                {
+                    int before = Mathf.CeilToInt(countdownLeft);
+                    countdownLeft = net.TimeToPhaseEnd;
+                    int after = Mathf.CeilToInt(countdownLeft);
+                    if (after != before && after > 0) SoundManager.Play("count");
+                    if (IsHostOnline && countdownLeft <= 0f) net.ServerStartFight(matchTime);
+                }
+                break;
+
+            case State.Playing:
+                if (fightTextTimer > 0f) fightTextTimer -= Time.deltaTime;
+                fightTime += Time.deltaTime;
+                timeLeft = net.TimeToPhaseEnd;
+                TrackDamage(player, 0);
+                TrackDamage(cpu, 1);
+
+                if (IsHostOnline)
+                {
+                    if (timeLeft <= 0f) HostTimeUp();
+                    else
+                    {
+                        HostCheckKO(player, 0);
+                        HostCheckKO(cpu, 1);
+                    }
+                }
+                break;
+
+            case State.Result:
+                if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton0)) Reload(true);
+                else if (Input.GetKeyDown(KeyCode.T) || Input.GetKeyDown(KeyCode.JoystickButton1)) GoToTitle();
+                break;
+        }
+    }
+
+    void FindOnlineFighters()
+    {
+        foreach (HealthSystem h in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
+        {
+            if (!h.IsSpawned) continue;
+            if (h.IsOwner) player = h;
+            else cpu = h;
+        }
+        if (player == null || cpu == null) return;
+
+        fightersFound = true;
+        playerWeapon = FindWeapon(player);
+        cpuWeapon = FindWeapon(cpu);
+
+        // カメラが2人を映すようにする
+        var cf = FindFirstObjectByType<CameraFollow>();
+        if (cf != null) cf.targets = new[] { player.transform, cpu.transform };
+
+        bool fighting = state == State.Playing;
+        SetControl(player, fighting);
+        SetControl(cpu, fighting);
+    }
+
+    void OnlineStateChanged(State ns)
+    {
+        state = ns;
+        switch (ns)
+        {
+            case State.Countdown:
+                countdownLeft = net.TimeToPhaseEnd;
+                fightTime = 0f;
+                SoundManager.Play("count");
+                SetControl(player, false);
+                SetControl(cpu, false);
+                break;
+
+            case State.Playing:
+                SoundManager.Play("fight");
+                fightTextTimer = 0.8f;
+                if (!paused) SetControl(player, true);
+                SetControl(cpu, true);
+                break;
+
+            case State.Result:
+                paused = false;
+                string text;
+                if (opponentLeft) text = "OPPONENT LEFT";
+                else if (net.Winner == -2) text = "DRAW";
+                else text = (ulong)Mathf.Max(0, net.Winner) == NetworkManager.Singleton.LocalClientId ? "YOU WIN" : "YOU LOSE";
+                EndMatch(text);
+                break;
+        }
+    }
+
+    // ホストがステージを決めて、カウントダウンを始める
+    void HostBegin(int index)
+    {
+        savedStage = index;
+        SoundManager.Play("ui");
+        hostWaiting[0] = hostWaiting[1] = false;
+        net.ServerStartCountdown(index, stockCount, countdownTime);
+        // 2人ともスタート位置で、HP 満タンから
+        foreach (HealthSystem f in new[] { player, cpu })
+        {
+            if (f == null) continue;
+            var sp = f.GetComponent<NetworkPlayerSpawn>();
+            f.ServerRespawn(sp != null ? sp.GetSpawnPosition() : (Vector3)respawnPoint, 0f);
+        }
+        graceUntil[0] = graceUntil[1] = Time.time + 1f;
+    }
+
+    void HostCheckKO(HealthSystem fighter, int i)
+    {
+        if (fighter == null || hostWaiting[i] || Time.time < graceUntil[i]) return;
+        Vector3 p = fighter.transform.position;
+        bool outOfBounds = p.x < blastLeft || p.x > blastRight || p.y < blastBottom || p.y > blastTop;
+        if (outOfBounds || fighter.currentHealth <= 0) HostKnockOut(fighter, i);
+    }
+
+    void HostKnockOut(HealthSystem fighter, int i)
+    {
+        hostWaiting[i] = true;
+        ulong id = fighter.OwnerClientId;
+        net.KoRpc(id, fighter.transform.position);
+        fighter.ServerKnockOut();
+
+        int left = net.ServerLoseStock(id);
+        if (left <= 0)
+        {
+            HealthSystem other = fighter == player ? cpu : player;
+            net.ServerEnd(other != null ? (int)other.OwnerClientId : -2);
+            return;
+        }
+        StartCoroutine(HostRespawn(fighter, i));
+    }
+
+    IEnumerator HostRespawn(HealthSystem fighter, int i)
+    {
+        yield return new WaitForSeconds(respawnDelay);
+        if (net == null || net.State != OnlineMatch.Playing || fighter == null) yield break;
+        fighter.ServerRespawn(respawnPoint, invincibleTime);
+        graceUntil[i] = Time.time + 1f;   // 移動が相手の画面に届くまで、場外判定を待つ
+        hostWaiting[i] = false;
+    }
+
+    void HostTimeUp()
+    {
+        if (player == null || cpu == null) return;
+        int ps = net.StocksOf(player.OwnerClientId), cs = net.StocksOf(cpu.OwnerClientId);
+        int win;
+        if (ps != cs) win = ps > cs ? (int)player.OwnerClientId : (int)cpu.OwnerClientId;
+        else if (player.currentHealth != cpu.currentHealth) win = player.currentHealth > cpu.currentHealth ? (int)player.OwnerClientId : (int)cpu.OwnerClientId;
+        else win = -2;
+        net.ServerEnd(win);
+    }
+
+    // KO の演出(2人の画面で出る)
+    void OnNetKo(ulong clientId, Vector2 pos)
+    {
+        bool mine = NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId;
+        HealthSystem who = mine ? player : cpu;
+        Color c = mine ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF);
+
+        CameraFollow.Shake(0.5f, 0.35f);
+        if (who != null) ShowPopup(who.transform, "KO!", c, false);
+        Vector2 burstPos = new Vector2(Mathf.Clamp(pos.x, blastLeft + 2f, blastRight - 2f), Mathf.Clamp(pos.y, blastBottom + 2f, blastTop - 2f));
+        HitEffect.Burst(burstPos, c);
+        SoundManager.Play("ko");
+        lastHp[mine ? 0 : 1] = -1;   // 場外 KO の分はダメージに数えない
     }
 
     void Fill(Rect r, Color c)

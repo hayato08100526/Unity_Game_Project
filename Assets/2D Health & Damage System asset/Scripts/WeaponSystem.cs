@@ -656,6 +656,9 @@ public class WeaponSystem : NetworkBehaviour
     [Rpc(SendTo.NotMe)]
     void ShootRpc(int index, Vector3 position, Quaternion rotation)
     {
+        // 相手の画面でも、銃声とマズルフラッシュを出す
+        LastShotTime = Time.time;
+        SoundManager.PlayShot(GetWeaponName(index), true);
         SpawnBullet(index, position, rotation);
     }
 

@@ -54,8 +54,13 @@ public class NetworkPlayerSpawn : NetworkBehaviour
     public void TeleportToSpawn()
     {
         if (!IsOwner) return;
+        TeleportTo(GetSpawnPosition());
+    }
 
-        Vector3 pos = GetSpawnPosition();
+    // 好きな位置へ移動(オンライン対戦の復活で使う)
+    public void TeleportTo(Vector3 pos)
+    {
+        if (!IsOwner) return;
 
         if (rb != null) rb.linearVelocity = Vector2.zero;
 
@@ -66,7 +71,7 @@ public class NetworkPlayerSpawn : NetworkBehaviour
             transform.position = pos;
     }
 
-    private Vector3 GetSpawnPosition()
+    public Vector3 GetSpawnPosition()
     {
         // Host(OwnerClientId 0)が P1、最初の Client が P2
         int number = (int)OwnerClientId + 1;

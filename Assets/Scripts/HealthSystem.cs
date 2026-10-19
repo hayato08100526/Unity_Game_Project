@@ -191,7 +191,7 @@ public class HealthSystem : NetworkBehaviour
         }
 
         // オンライン時はHostだけがダメージを確定させる
-        if (!IsServer || netHealth.Value <= 0) return;
+        if (!IsServer || netHealth.Value <= 0 || IsInvincible) return;
 
         netHealth.Value = Mathf.Max(0, netHealth.Value - damage);
         KnockbackRpc(knockback);
@@ -291,6 +291,36 @@ public class HealthSystem : NetworkBehaviour
         invincibleUntil = Time.time + invincibleSeconds;
     }
 
+    // ===== オンライン対戦(MatchManager のホスト側)から呼ばれる =====
+
+    // KO:HP を -1 にする(-1 は「場外などで KO された」しるし。ダメージの数字は出さない)
+    public void ServerKnockOut()
+    {
+        if (!IsOnline || !IsServer) return;
+        netHealth.Value = -1;
+    }
+
+    // 復活:HP を満タンにして、本人の画面で指定の位置へ動かし、全員の画面で無敵にする
+    public void ServerRespawn(Vector3 position, float invincibleSeconds)
+    {
+        if (!IsOnline || !IsServer) return;
+        RespawnAtRpc(position, invincibleSeconds);
+        netHealth.Value = maxHealth;
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void RespawnAtRpc(Vector3 position, float invincibleSeconds)
+    {
+        ResetParts();
+        invincibleUntil = Time.time + invincibleSeconds;
+        if (IsOwner)
+        {
+            var spawn = GetComponent<NetworkPlayerSpawn>();
+            if (spawn != null) spawn.TeleportTo(position);
+            else transform.position = position;
+        }
+    }
+
     // ===== ここから下は今までと同じ =====
 
     // ノックバックは位置の権限を持つ本人(Owner)のPCで実行する
@@ -310,8 +340,16 @@ public class HealthSystem : NetworkBehaviour
     // HPが変わったら全員の画面で呼ばれる
     private void OnNetHealthChanged(int previous, int current)
     {
-        currentHealth = current;
+        currentHealth = Mathf.Max(0, current);
         UpdateHPUI();
+
+        // 弾が当たって減ったとき:音・火花・赤く光る・ダメージの数字(KO の -1 のときは出さない)
+        if (current >= 0 && previous > 0 && current < previous)
+        {
+            SoundManager.Play("hit", 0.9f, 0.08f);
+            HitEffect.Spark((Vector2)transform.position + Vector2.up * 0.4f, false);
+            HitFeedback(previous - current);
+        }
 
         if (previous > 0 && current <= 0) SetDeadVisual(true);       // 死亡
         else if (previous <= 0 && current > 0) SetDeadVisual(false); // 復活
