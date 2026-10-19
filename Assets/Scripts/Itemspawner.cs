@@ -33,7 +33,8 @@ public class ItemSpawner : MonoBehaviour
         if (TryPickSpot(out Vector2 pos))
         {
             var kind = Random.value < 0.5f ? ItemPickup.Kind.Repair : ItemPickup.Kind.Coolant;
-            ItemPickup.Create(kind, pos);
+            if (mm.IsOnlineMode) mm.OnlineSpawnItem(kind, pos);   // オンライン:2人の画面に同じアイテムを出す
+            else ItemPickup.Create(kind, pos);
         }
     }
 

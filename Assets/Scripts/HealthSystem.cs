@@ -36,6 +36,15 @@ public class HealthSystem : NetworkBehaviour
 
     private int headHp, armHp, legHp;
 
+    // オンライン用:頭・腕・脚の耐久を 1 つの数にまとめて同期(書き換えられるのはホストだけ)
+    private readonly NetworkVariable<int> netParts = new NetworkVariable<int>(
+        -1, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    static int PackParts(int h, int a, int l)
+    {
+        return Mathf.Clamp(h, 0, 255) | (Mathf.Clamp(a, 0, 255) << 8) | (Mathf.Clamp(l, 0, 255) << 16);
+    }
+
     public bool HeadBroken => enablePartDamage && headHp <= 0;
     public bool ArmBroken => enablePartDamage && armHp <= 0;
     public bool LegBroken => enablePartDamage && legHp <= 0;
@@ -84,14 +93,36 @@ public class HealthSystem : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         netHealth.OnValueChanged += OnNetHealthChanged;
-        if (IsServer) netHealth.Value = maxHealth;
+        netParts.OnValueChanged += OnNetPartsChanged;
+        if (IsServer)
+        {
+            netHealth.Value = maxHealth;
+            netParts.Value = PackParts(headDurability, armDurability, legDurability);
+        }
         currentHealth = netHealth.Value;
+        if (netParts.Value >= 0) OnNetPartsChanged(-1, netParts.Value);
         UpdateHPUI();
+    }
+
+    // 部位の耐久が変わったら全員の画面で呼ばれる(壊れた瞬間に OnPartBroken を出す)
+    private void OnNetPartsChanged(int previous, int current)
+    {
+        if (current < 0) return;
+        int h = current & 0xFF, a = (current >> 8) & 0xFF, l = (current >> 16) & 0xFF;
+        bool hOk = headHp > 0, aOk = armHp > 0, lOk = legHp > 0;
+        headHp = h; armHp = a; legHp = l;
+        if (previous < 0) return;   // 最初の 1 回は知らせない
+        if (hOk && h <= 0) OnPartBroken?.Invoke(this, Part.Head);
+        if (aOk && a <= 0) OnPartBroken?.Invoke(this, Part.Arm);
+        if (lOk && l <= 0) OnPartBroken?.Invoke(this, Part.Leg);
     }
 
     public override void OnNetworkDespawn()
     {
+        Debug.LogWarning("[Online] 通信から外れた: " + name + " (id " + OwnerClientId + ")  消えるか=" + (NetworkObject != null && NetworkObject.DestroyWithScene)
+                         + "\n" + System.Environment.StackTrace);
         netHealth.OnValueChanged -= OnNetHealthChanged;
+        netParts.OnValueChanged -= OnNetPartsChanged;
     }
 
     private void Update()
@@ -143,7 +174,24 @@ public class HealthSystem : NetworkBehaviour
     // 当たった位置つき(弾やグレネードから呼ばれる)。位置で部位を決める
     public void TakeDamage(int damage, Vector2 knockback, Vector2 hitPoint)
     {
-        if (IsOnline || !enablePartDamage)
+        // オンライン:ホストが部位を決めて、壊れ具合を全員に送る
+        if (IsOnline)
+        {
+            if (!IsServer || netHealth.Value <= 0 || IsInvincible) return;
+            if (enablePartDamage)
+            {
+                Part p = GetPart(hitPoint);
+                if (p == Part.Head) damage = Mathf.RoundToInt(damage * headDamageMultiplier);
+                int h = headHp, a = armHp, l = legHp;
+                if (p == Part.Head) h -= damage;
+                else if (p == Part.Arm) a -= damage;
+                else if (p == Part.Leg) l -= damage;
+                netParts.Value = PackParts(h, a, l);
+            }
+            TakeDamage(damage, knockback);
+            return;
+        }
+        if (!enablePartDamage)
         {
             TakeDamage(damage, knockback);
             return;
@@ -305,7 +353,15 @@ public class HealthSystem : NetworkBehaviour
     {
         if (!IsOnline || !IsServer) return;
         RespawnAtRpc(position, invincibleSeconds);
+        netParts.Value = PackParts(headDurability, armDurability, legDurability);
         netHealth.Value = maxHealth;
+    }
+
+    // REPAIR アイテム(オンライン):ホストが HP を回復する
+    public void ServerHeal(int amount)
+    {
+        if (!IsOnline || !IsServer || netHealth.Value <= 0) return;
+        netHealth.Value = Mathf.Min(maxHealth, netHealth.Value + amount);
     }
 
     [Rpc(SendTo.Everyone)]
@@ -313,12 +369,11 @@ public class HealthSystem : NetworkBehaviour
     {
         ResetParts();
         invincibleUntil = Time.time + invincibleSeconds;
-        if (IsOwner)
-        {
-            var spawn = GetComponent<NetworkPlayerSpawn>();
-            if (spawn != null) spawn.TeleportTo(position);
-            else transform.position = position;
-        }
+        // 動かす権限のある画面(ホストか本人)で移動する。どちらかは NetworkPlayerSpawn が判断する
+        var spawn = GetComponent<NetworkPlayerSpawn>();
+        if (spawn != null) spawn.TeleportTo(position);
+        else if (IsOwner) transform.position = position;
+        if (rb != null && IsOwner) rb.linearVelocity = Vector2.zero;
     }
 
     // ===== ここから下は今までと同じ =====

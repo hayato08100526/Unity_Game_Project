@@ -90,6 +90,14 @@ public class WeaponSystem : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Owner);
 
+    // 今の武器と、全部の武器の熱(持ち主が書き込み、相手の HUD に出す)
+    // 熱は 1 つの武器につき 1 バイト(0〜100、255 = オーバーヒート中)にまとめて送る
+    private readonly NetworkVariable<int> netWeapon = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<ulong> netHeat = new NetworkVariable<ulong>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    private float nextHeatSync;
+
     private bool IsOnline => IsSpawned;
 
     // ===== 画面表示や CPU が読む情報 =====
@@ -211,10 +219,12 @@ public class WeaponSystem : NetworkBehaviour
             displayedAimAngle = Mathf.LerpAngle(displayedAimAngle, netAimAngle.Value,
                                                 remoteAimSmoothing * Time.deltaTime);
             ApplyAim(displayedAimAngle);
+            ReadRemoteState();
             return;
         }
 
         UpdateHeat();
+        if (IsOnline && IsOwner) SendState();
 
         // CPU はマウスやキーを読まない(CpuController から操作される)
         if (isCpu) return;
@@ -271,6 +281,38 @@ public class WeaponSystem : NetworkBehaviour
     void OnDisable()
     {
         CancelRoute();
+    }
+
+    // ===== オンライン:武器と熱を相手に知らせる =====
+    void SendState()
+    {
+        if (netWeapon.Value != currentWeaponIndex) netWeapon.Value = currentWeaponIndex;
+        if (Time.time < nextHeatSync) return;
+        nextHeatSync = Time.time + 0.1f;   // 1 秒に 10 回まで
+
+        EnsureArrays();
+        ulong packed = 0;
+        for (int i = 0; i < heat.Length && i < 8; i++)
+        {
+            ulong b = IsLocked(i) ? 255UL : (ulong)Mathf.Clamp(Mathf.RoundToInt(heat[i]), 0, 100);
+            packed |= b << (i * 8);
+        }
+        if (netHeat.Value != packed) netHeat.Value = packed;
+    }
+
+    // 相手の画面:届いた値を、自分の表示用の配列に入れる
+    void ReadRemoteState()
+    {
+        EnsureArrays();
+        if (netWeapon.Value >= 0 && netWeapon.Value < WeaponCount) currentWeaponIndex = netWeapon.Value;
+        ulong packed = netHeat.Value;
+        for (int i = 0; i < heat.Length && i < 8; i++)
+        {
+            int b = (int)((packed >> (i * 8)) & 0xFF);
+            bool locked = b == 255;
+            heat[i] = locked ? 100f : b;
+            lockedUntil[i] = locked ? Time.time + 1f : -1f;
+        }
     }
 
     // いまゲームパッドで操作しているか(全部の画面で共通)

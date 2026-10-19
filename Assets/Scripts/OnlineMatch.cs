@@ -59,6 +59,22 @@ public class OnlineMatch : NetworkBehaviour
         state.Value = Result;
     }
 
+    // ===== アイテム =====
+    public System.Action<int, int, Vector2> OnItemSpawned;   // 番号, 種類, 位置
+    public System.Action<int, ulong> OnItemTaken;            // 番号, 取った人
+
+    [Rpc(SendTo.Everyone)]
+    public void SpawnItemRpc(int id, int kind, Vector2 pos)
+    {
+        OnItemSpawned?.Invoke(id, kind, pos);
+    }
+
+    [Rpc(SendTo.Everyone)]
+    public void ItemTakenRpc(int id, ulong clientId)
+    {
+        OnItemTaken?.Invoke(id, clientId);
+    }
+
     // ===== 全員の画面で出す演出 =====
     public System.Action<ulong, Vector2> OnKo;
 

@@ -38,7 +38,9 @@ public class RobotJuice : MonoBehaviour
         pc = GetComponent<PlayerController>();
         rb = GetComponent<Rigidbody2D>();
         hs = GetComponent<HealthSystem>();
-        team = (pc != null && pc.isCpu) ? Amber : Cyan;
+        // CPU と、オンラインで参加した人(P2)はオレンジ
+        bool orange = pc != null && (pc.isCpu || (pc.IsSpawned && pc.OwnerClientId != 0));
+        team = orange ? Amber : Cyan;
         if (hs != null) lastHp = hs.currentHealth;
     }
 

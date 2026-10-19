@@ -64,6 +64,12 @@ public class MatchManager : MonoBehaviour
     private bool opponentLeft;
     private int appliedStage = -1;
     private readonly bool[] hostWaiting = new bool[2];
+
+    [Header("オンライン:参加した人(P2)のロボットの見た目")]
+    [Tooltip("Robot_CPU を入れる")]
+    public Sprite p2BodySprite;
+    [Tooltip("Robot_Gun_CPU を入れる")]
+    public Sprite p2GunSprite;
     private readonly float[] graceUntil = new float[2];
 
     // ===== 戦績(リザルト画面に出す) [0] = 自分, [1] = CPU =====
@@ -120,7 +126,12 @@ public class MatchManager : MonoBehaviour
     void OnDestroy()
     {
         if (Instance == this) Instance = null;
-        if (net != null) net.OnKo -= OnNetKo;
+        if (net != null)
+        {
+            net.OnKo -= OnNetKo;
+            net.OnItemSpawned -= OnNetItemSpawned;
+            net.OnItemTaken -= OnNetItemTaken;
+        }
         if (player != null) player.OnPartBroken -= HandlePartBroken;
         if (cpu != null) cpu.OnPartBroken -= HandlePartBroken;
     }
@@ -172,6 +183,8 @@ public class MatchManager : MonoBehaviour
         if (net != null)
         {
             net.OnKo += OnNetKo;
+            net.OnItemSpawned += OnNetItemSpawned;
+            net.OnItemTaken += OnNetItemTaken;
             playerStocks = stockCount;
             cpuStocks = stockCount;
             timeLeft = matchTime;
@@ -661,16 +674,20 @@ public class MatchManager : MonoBehaviour
 
         string cpuSub = IsOnlineMode ? "ONLINE" : (savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "");
         bool meHost = !IsOnlineMode || IsHostOnline;
+        // 色はロボットに合わせる(ホスト = 水色 / 参加した人 = オレンジ)
+        Color cyanDark = new Color32(0x03, 0x14, 0x17, 0xFF), amberDark = new Color32(0x1F, 0x13, 0x00, 0xFF);
+        Color meCol = meHost ? cyan : amber, meDark = meHost ? cyanDark : amberDark;
+        Color rivalCol = meHost ? amber : cyan, rivalDark = meHost ? amberDark : cyanDark;
         DrawHudPanel(false, k, meHost ? "P1" : "P2", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
-                     cyan, new Color32(0x03, 0x14, 0x17, 0xFF));
+                     meCol, meDark);
         DrawHudPanel(true, k, meHost ? "P2" : "P1", IsOnlineMode ? "RIVAL" : "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
-                     amber, new Color32(0x1F, 0x13, 0x00, 0xFF));
+                     rivalCol, rivalDark);
 
         // 頭の上のマーカー(画面の外にいるときは、ふちに矢印)
         if (showMarkers && state != State.SelectDifficulty && state != State.SelectStage)
         {
-            DrawMarker(player, playerWaiting, IsOnlineMode ? "YOU" : "P1", cyan, new Color32(0x03, 0x14, 0x17, 0xFF), unit);
-            DrawMarker(cpu, cpuWaiting, IsOnlineMode ? "RIVAL" : "CPU", amber, new Color32(0x1F, 0x13, 0x00, 0xFF), unit);
+            DrawMarker(player, playerWaiting, IsOnlineMode ? "YOU" : "P1", meCol, meDark, unit);
+            DrawMarker(cpu, cpuWaiting, IsOnlineMode ? "RIVAL" : "CPU", rivalCol, rivalDark, unit);
         }
 
         // 部位が壊れたときの文字(頭上に出して、上に浮かびながら消える)
@@ -682,15 +699,22 @@ public class MatchManager : MonoBehaviour
         {
             DrawDifficultySelect(unit, cyan, white);
         }
-        else if (IsOnlineMode && state != State.Result && (!fightersFound || (state == State.SelectStage && !IsHostOnline)))
+        else if (IsOnlineMode && state != State.Result && (!fightersFound || net == null || !net.IsSpawned || (state == State.SelectStage && !IsHostOnline)))
         {
             // オンライン:相手を待っている / ホストがステージを選んでいる
             Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xD8));
             midStyle.normal.textColor = white;
-            string msg = !fightersFound ? "WAITING FOR PLAYERS..." : "HOST IS CHOOSING THE STAGE...";
+            string msg = !fightersFound || net == null || !net.IsSpawned ? "WAITING FOR PLAYERS..." : "HOST IS CHOOSING THE STAGE...";
             bool blink = Mathf.FloorToInt(Time.unscaledTime * 2f) % 2 == 0;
             midStyle.normal.textColor = blink ? white : cyan;
             GUI.Label(new Rect(0, Screen.height * 0.42f, Screen.width, unit * 1.4f), msg, midStyle);
+            if (!fightersFound || net == null || !net.IsSpawned)
+            {
+                tinyStyle.alignment = TextAnchor.MiddleCenter;
+                tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
+                GUI.Label(new Rect(0, Screen.height * 0.42f + unit * 1.6f, Screen.width, unit), onlineDebug, tinyStyle);
+                tinyStyle.alignment = TextAnchor.MiddleLeft;
+            }
         }
         else if (state == State.SelectStage)
         {
@@ -1335,12 +1359,12 @@ public class MatchManager : MonoBehaviour
     // =====================================================================
     void OnlineUpdate()
     {
-        if (net == null || !net.IsSpawned) return;
-
         // 2人のロボットを探す(自分 = player / 相手 = cpu)
         if (!fightersFound) FindOnlineFighters();
-        else if ((player == null || cpu == null) && state != State.Result)
+        if (net == null || !net.IsSpawned) return;
+        if (fightersFound && (player == null || cpu == null) && state != State.Result && !opponentLeft)
         {
+            Debug.LogWarning("[Online] ロボットが消えた  自分=" + (player == null ? "なし" : "あり") + "  相手=" + (cpu == null ? "なし" : "あり"));
             opponentLeft = true;   // 相手が抜けた
         }
 
@@ -1429,8 +1453,23 @@ public class MatchManager : MonoBehaviour
         }
     }
 
+    // うまくつながらないときに、待ち画面に出す情報
+    private string onlineDebug = "";
+
     void FindOnlineFighters()
     {
+        int total = 0, spawned = 0, mine = 0;
+        foreach (HealthSystem h in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
+        {
+            total++;
+            if (h.IsSpawned) spawned++;
+            if (h.IsSpawned && h.IsOwner) mine++;
+        }
+        var nmDbg = NetworkManager.Singleton;
+        onlineDebug = "match " + (net != null && net.IsSpawned ? "OK" : "NOT SPAWNED")
+                    + "   robots " + total + "   online " + spawned + "   mine " + mine
+                    + "   " + (nmDbg == null ? "no NetworkManager" : (nmDbg.IsHost ? "HOST" : nmDbg.IsClient ? "CLIENT" : "OFFLINE"));
+
         foreach (HealthSystem h in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
         {
             if (!h.IsSpawned) continue;
@@ -1440,8 +1479,22 @@ public class MatchManager : MonoBehaviour
         if (player == null || cpu == null) return;
 
         fightersFound = true;
+        Debug.Log("[Online] みつけた  自分=" + player.name + " (id " + player.OwnerClientId + ")  相手=" + cpu.name + " (id " + cpu.OwnerClientId + ")");
         playerWeapon = FindWeapon(player);
         cpuWeapon = FindWeapon(cpu);
+
+        // 部位が壊れたときの文字(オンラインでも出す)
+        player.OnPartBroken -= HandlePartBroken;
+        cpu.OnPartBroken -= HandlePartBroken;
+        player.OnPartBroken += HandlePartBroken;
+        cpu.OnPartBroken += HandlePartBroken;
+
+        // アイテムを出すのはホストだけ(出す場所と種類を2人に送る)
+        if (spawnItems && net != null && net.IsServer && GetComponent<ItemSpawner>() == null) gameObject.AddComponent<ItemSpawner>();
+
+        // 参加した人(P2)のロボットをオレンジの見た目にする
+        ApplyOnlineSkin(player);
+        ApplyOnlineSkin(cpu);
 
         // カメラが2人を映すようにする
         var cf = FindFirstObjectByType<CameraFollow>();
@@ -1450,6 +1503,19 @@ public class MatchManager : MonoBehaviour
         bool fighting = state == State.Playing;
         SetControl(player, fighting);
         SetControl(cpu, fighting);
+    }
+
+    void ApplyOnlineSkin(HealthSystem f)
+    {
+        if (f == null || f.OwnerClientId == NetworkManager.ServerClientId) return;   // ホストはそのまま(水色)
+        var body = f.GetComponent<SpriteRenderer>();
+        if (body != null && p2BodySprite != null) body.sprite = p2BodySprite;
+        if (p2GunSprite == null) return;
+        foreach (WeaponSystem w in f.GetComponentsInChildren<WeaponSystem>(true))
+        {
+            var sr = w.GetComponent<SpriteRenderer>();
+            if (sr != null) sr.sprite = p2GunSprite;
+        }
     }
 
     void OnlineStateChanged(State ns)
@@ -1545,12 +1611,53 @@ public class MatchManager : MonoBehaviour
         net.ServerEnd(win);
     }
 
+    // ===== オンラインのアイテム =====
+    private int nextItemId = 1;
+
+    // ItemSpawner(ホスト)から呼ばれる
+    public void OnlineSpawnItem(ItemPickup.Kind kind, Vector2 pos)
+    {
+        if (!IsHostOnline) return;
+        net.SpawnItemRpc(nextItemId++, (int)kind, pos);
+    }
+
+    void OnNetItemSpawned(int id, int kind, Vector2 pos)
+    {
+        ItemPickup item = ItemPickup.Create((ItemPickup.Kind)kind, pos);
+        item.netId = id;
+    }
+
+    // ロボットがアイテムにさわった(取ったことにするのはホストだけ)
+    public void OnlineItemTouched(ItemPickup item, HealthSystem who)
+    {
+        if (!IsHostOnline || item == null || who == null || !who.IsSpawned) return;
+        if (takenItems.Contains(item.netId)) return;   // 2回取らない
+        takenItems.Add(item.netId);
+        net.ItemTakenRpc(item.netId, who.OwnerClientId);
+    }
+    private readonly System.Collections.Generic.HashSet<int> takenItems = new System.Collections.Generic.HashSet<int>();
+
+    void OnNetItemTaken(int id, ulong clientId)
+    {
+        HealthSystem who = player != null && player.OwnerClientId == clientId ? player : cpu;
+        foreach (ItemPickup it in ItemPickup.Active.ToArray())
+        {
+            if (it != null && it.netId == id)
+            {
+                if (who != null) it.ApplyOnline(who);
+                else Destroy(it.gameObject);
+                return;
+            }
+        }
+    }
+
     // KO の演出(2人の画面で出る)
     void OnNetKo(ulong clientId, Vector2 pos)
     {
         bool mine = NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId;
         HealthSystem who = mine ? player : cpu;
-        Color c = mine ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF);
+        // ホスト = 水色 / 参加した人 = オレンジ
+        Color c = clientId == NetworkManager.ServerClientId ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF);
 
         CameraFollow.Shake(0.5f, 0.35f);
         if (who != null) ShowPopup(who.transform, "KO!", c, false);

@@ -10,6 +10,7 @@ public class ItemPickup : MonoBehaviour
     public static readonly List<ItemPickup> Active = new List<ItemPickup>();
 
     public Kind kind;
+    [HideInInspector] public int netId = -1;   // オンラインでの番号(2人の画面で同じアイテムを指す)
     public int repairAmount = 30;
     public float lifeTime = 10f;
 
@@ -65,6 +66,23 @@ public class ItemPickup : MonoBehaviour
             return;
         }
 
+        // オンライン(ホスト):相手のロボットは物理で当たらないことがあるので、距離で「さわった」を調べる
+        if (netId >= 0 && MatchManager.Instance != null)
+        {
+            foreach (HealthSystem h in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
+            {
+                if (h.currentHealth <= 0 || !h.IsSpawned || !h.IsServer) continue;
+                Collider2D c = h.GetComponent<Collider2D>();
+                Vector2 p = c != null ? (Vector2)c.bounds.center : (Vector2)h.transform.position;
+                float r = c != null ? Mathf.Max(c.bounds.extents.x, c.bounds.extents.y) + 0.45f : 1f;
+                if (Vector2.Distance(p, basePos) < r)
+                {
+                    MatchManager.Instance.OnlineItemTouched(this, h);
+                    break;
+                }
+            }
+        }
+
         // ふわふわ上下 + 最後の 3 秒は点滅
         transform.position = basePos + Vector3.up * Mathf.Sin(age * 3f) * 0.12f;
         bool blink = lifeTime - age < 3f && Mathf.FloorToInt(age * 8f) % 2 == 0;
@@ -75,6 +93,13 @@ public class ItemPickup : MonoBehaviour
     {
         HealthSystem who = other.GetComponentInParent<HealthSystem>();
         if (who == null || who.currentHealth <= 0) return;
+
+        // オンライン:取ったかどうかはホストが決めて、2人の画面に知らせる
+        if (netId >= 0)
+        {
+            if (MatchManager.Instance != null) MatchManager.Instance.OnlineItemTouched(this, who);
+            return;
+        }
 
         string text;
         Color color;
@@ -92,6 +117,30 @@ public class ItemPickup : MonoBehaviour
             color = CoolantColor;
         }
 
+        if (MatchManager.Instance != null) MatchManager.Instance.ShowPopup(who.transform, text, color, false);
+        SoundManager.Play("switch", 1f);
+        Destroy(gameObject);
+    }
+
+    // オンラインで取られたとき(2人の画面で呼ばれる)。HP と熱の変更は、権限のある画面だけが行う
+    public void ApplyOnline(HealthSystem who)
+    {
+        string text;
+        Color color;
+        if (kind == Kind.Repair)
+        {
+            if (who.IsServer) who.ServerHeal(repairAmount);
+            text = "REPAIR +" + repairAmount;
+            color = RepairColor;
+        }
+        else
+        {
+            if (who.IsOwner)
+                foreach (WeaponSystem w in who.GetComponentsInChildren<WeaponSystem>())
+                    w.CoolAll();
+            text = "COOLANT";
+            color = CoolantColor;
+        }
         if (MatchManager.Instance != null) MatchManager.Instance.ShowPopup(who.transform, text, color, false);
         SoundManager.Play("switch", 1f);
         Destroy(gameObject);

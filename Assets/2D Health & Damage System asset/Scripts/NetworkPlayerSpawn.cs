@@ -26,6 +26,10 @@ public class NetworkPlayerSpawn : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         rb = GetComponent<Rigidbody2D>();
+
+        // シーンが切り替わっても(ロビー → 試合)ロボットが消されないようにする
+        if (transform.parent == null) DontDestroyOnLoad(gameObject);
+        Debug.Log("[Online] ロボットが出た: " + name + " (id " + OwnerClientId + ")  シーン=" + SceneManager.GetActiveScene().name);
         SceneManager.activeSceneChanged += OnActiveSceneChanged;
         ApplyScene(SceneManager.GetActiveScene());
     }
@@ -37,6 +41,7 @@ public class NetworkPlayerSpawn : NetworkBehaviour
 
     private void OnActiveSceneChanged(Scene oldScene, Scene newScene)
     {
+        Debug.Log("[Online] シーンが変わった: " + oldScene.name + " → " + newScene.name + "  (" + name + " はまだいる)");
         ApplyScene(newScene);
     }
 
@@ -53,18 +58,20 @@ public class NetworkPlayerSpawn : NetworkBehaviour
     // 自分のプレイヤーをスポーン地点へ移動(リスポーン時にも使う)
     public void TeleportToSpawn()
     {
-        if (!IsOwner) return;
         TeleportTo(GetSpawnPosition());
     }
 
     // 好きな位置へ移動(オンライン対戦の復活で使う)
+    // 位置を決める権限(Authority)を持っている画面だけが動かす。ほかの画面では何もしない
+    // (ホストが持っている設定でも、本人が持っている設定でも、どちらでも動く)
     public void TeleportTo(Vector3 pos)
     {
-        if (!IsOwner) return;
+        var netTransform = GetComponent<NetworkTransform>();
+        bool canMove = netTransform != null ? netTransform.CanCommitToTransform : IsOwner;
+        if (!canMove) return;
 
         if (rb != null) rb.linearVelocity = Vector2.zero;
 
-        var netTransform = GetComponent<NetworkTransform>();
         if (netTransform != null)
             netTransform.Teleport(pos, transform.rotation, transform.localScale);
         else
