@@ -15,6 +15,16 @@ public class TitleScreen : MonoBehaviour
     [Tooltip("日本語のフォント(Noto Sans JP など)。空なら標準のフォント(Windows の日本語フォントが使われる)")]
     public Font japaneseFont;
 
+    [Header("タイトルの絵(空でも動く)")]
+    [Tooltip("Backgrounds の BG_Far")]
+    public Texture2D background;
+    [Tooltip("Robots の Robot_P1 / Robot_CPU")]
+    public Texture2D robotP1;
+    public Texture2D robotCpu;
+    [Tooltip("Robots の Robot_Gun_P1 / Robot_Gun_CPU")]
+    public Texture2D gunP1;
+    public Texture2D gunCpu;
+
     private GUIStyle titleStyle;
     private GUIStyle subStyle;
     private GUIStyle buttonStyle;
@@ -169,6 +179,8 @@ public class TitleScreen : MonoBehaviour
 
     void DrawTitle(float unit)
     {
+        DrawTitleScene(unit);
+
         titleStyle.normal.textColor = white;
         GUI.Label(new Rect(0, Screen.height * 0.1f, Screen.width, unit * 3f), "B A T T L E   D O O M", titleStyle);
 
@@ -187,6 +199,64 @@ public class TitleScreen : MonoBehaviour
         helpStyle.normal.textColor = grey;
         GUI.Label(new Rect(unit, Screen.height - unit * 1.6f, Screen.width - unit * 2f, unit),
                   "ENTER:すぐに CPU 対戦      H:あそびかた", helpStyle);
+    }
+
+    // ===== タイトルの絵:夜景の背景と、向かい合う2体のロボット =====
+    void DrawTitleScene(float unit)
+    {
+        float W = Screen.width, H = Screen.height;
+
+        // 背景(画面いっぱいに切り抜いて表示)+ 少し暗く
+        if (background != null)
+        {
+            GUI.DrawTexture(new Rect(0, 0, W, H), background, ScaleMode.ScaleAndCrop);
+            Fill(new Rect(0, 0, W, H), new Color(bg.r, bg.g, bg.b, 0.55f));
+        }
+
+        // 床
+        float floorY = H - unit * 2.6f;
+        Fill(new Rect(0, floorY, W, H - floorY), new Color32(0x0A, 0x0E, 0x14, 0xF0));
+        Fill(new Rect(0, floorY, W, 2f), new Color32(0x3A, 0x44, 0x52, 0xFF));
+
+        if (robotP1 == null || robotCpu == null) return;
+
+        // ロボット(ふわっと上下に揺れる)
+        float rh = unit * 7.5f;                           // ロボットの高さ
+        float rw = rh * robotP1.width / robotP1.height;
+        float k = rh / 72f;                               // 絵の 1 ドットの大きさ
+        float bob = Mathf.Sin(Time.unscaledTime * 2f) * unit * 0.08f;
+
+        Rect left = new Rect(W * 0.17f - rw / 2f, floorY - rh + bob, rw, rh);
+        Rect right = new Rect(W * 0.83f - rw / 2f, floorY - rh - bob, rw, rh);
+        GUI.DrawTexture(left, robotP1);
+        GUI.DrawTextureWithTexCoords(right, robotCpu, new Rect(1f, 0f, -1f, 1f)); // 左右反転
+
+        // 銃(肩から相手の方へ)
+        float shY = 29f * k;                              // 肩の高さ(絵の上から)
+        Vector2 shL = new Vector2(left.x + 31f * k, left.y + shY);
+        Vector2 shR = new Vector2(right.x + 15f * k, right.y + shY);
+        float gw = 35f * k, gh = 12f * k;
+        if (gunP1 != null) GUI.DrawTexture(new Rect(shL.x, shL.y - gh / 2f, gw, gh), gunP1);
+        if (gunCpu != null) GUI.DrawTextureWithTexCoords(new Rect(shR.x - gw, shR.y - gh / 2f, gw, gh), gunCpu, new Rect(1f, 0f, -1f, 1f));
+
+        // 撃ち合う弾(画面の下を左右に飛ぶ)
+        float startL = shL.x + gw, startR = shR.x - gw;
+        float span = startR - startL;
+        if (span <= 0f) return;
+        for (int i = 0; i < 3; i++)
+        {
+            float tL = Mod(Time.unscaledTime * 0.55f + i / 3f, 1f);
+            float tR = Mod(Time.unscaledTime * 0.45f + i / 3f + 0.15f, 1f);
+            Shot(new Vector2(startL + span * tL, shL.y), cyan, unit);
+            Shot(new Vector2(startR - span * tR, shR.y - unit * 0.15f), amber, unit);
+        }
+    }
+
+    void Shot(Vector2 p, Color c, float unit)
+    {
+        float len = unit * 0.7f, th = unit * 0.14f;
+        Fill(new Rect(p.x - len / 2f, p.y - th * 1.5f, len, th * 3f), new Color(c.r, c.g, c.b, 0.18f));
+        Fill(new Rect(p.x - len / 2f, p.y - th / 2f, len, th), c);
     }
 
     // ===== あそびかた =====
@@ -892,7 +962,9 @@ public class TitleScreen : MonoBehaviour
         }
 
         GUI.Label(r, label, buttonStyle);
-        return GUI.Button(r, GUIContent.none, GUIStyle.none);
+        bool clicked = GUI.Button(r, GUIContent.none, GUIStyle.none);
+        if (clicked) SoundManager.Play("ui");
+        return clicked;
     }
 
     void LoadScene(string sceneName)

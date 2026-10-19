@@ -1,63 +1,68 @@
-using System.Collections;
+ï»¿using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-// CPU ‘Îí‚Ì‡‚ğŠÇ—‚·‚é(ƒJƒEƒ“ƒgƒ_ƒEƒ“AêŠOKOAƒXƒgƒbƒNAƒŠƒXƒ|[ƒ“AŠÔØ‚êAŸ”s)
-// ƒV[ƒ“‚É‹ó‚ÌƒIƒuƒWƒFƒNƒg‚ğì‚Á‚Ä•t‚¯‚é
+// CPU å¯¾æˆ¦ã®è©¦åˆã‚’ç®¡ç†ã™ã‚‹(ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ã€å ´å¤–KOã€ã‚¹ãƒˆãƒƒã‚¯ã€ãƒªã‚¹ãƒãƒ¼ãƒ³ã€æ™‚é–“åˆ‡ã‚Œã€å‹æ•—)
+// ã‚·ãƒ¼ãƒ³ã«ç©ºã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã‚’ä½œã£ã¦ä»˜ã‘ã‚‹
 public class MatchManager : MonoBehaviour
 {
     public static MatchManager Instance { get; private set; }
 
-    [Header("í‚¤2l(‹ó‚È‚çuPlayervuCPUv‚Æ‚¢‚¤–¼‘O‚Å’T‚·)")]
+    [Header("æˆ¦ã†2äºº(ç©ºãªã‚‰ã€ŒPlayerã€ã€ŒCPUã€ã¨ã„ã†åå‰ã§æ¢ã™)")]
     public HealthSystem player;
     public HealthSystem cpu;
 
-    [Header("ƒ‹[ƒ‹")]
+    [Header("ãƒ«ãƒ¼ãƒ«")]
     public int stockCount = 3;
     public float matchTime = 180f;
     public float countdownTime = 3f;
     public float respawnDelay = 1.5f;
     public float invincibleTime = 2f;
 
-    [Header("ƒŠƒXƒ|[ƒ“’n“_(Åã’i‚Ì‘«ê‚Ìã)")]
+    [Header("ãƒªã‚¹ãƒãƒ¼ãƒ³åœ°ç‚¹(æœ€ä¸Šæ®µã®è¶³å ´ã®ä¸Š)")]
     public Vector2 respawnPoint = new Vector2(0f, 8.5f);
 
-    [Header("ƒ^ƒCƒgƒ‹‚É–ß‚é")]
+    [Header("ã‚¿ã‚¤ãƒˆãƒ«ã«æˆ»ã‚‹")]
     public string titleSceneName = "MainMenu";
 
-    [Header("‰æ–Ê•\¦")]
-    [Tooltip("HUD ‚Ég‚¤ƒtƒHƒ“ƒg(Fonts ƒtƒHƒ‹ƒ_‚Ì Oxanium-Bold ‚È‚Ç .ttf ‚Ì‚à‚Ì)B‹ó‚È‚ç•W€‚ÌƒtƒHƒ“ƒg")]
+    [Header("ç”»é¢è¡¨ç¤º")]
+    [Tooltip("HUD ã«ä½¿ã†ãƒ•ã‚©ãƒ³ãƒˆ(Fonts ãƒ•ã‚©ãƒ«ãƒ€ã® Oxanium-Bold ãªã© .ttf ã®ã‚‚ã®)ã€‚ç©ºãªã‚‰æ¨™æº–ã®ãƒ•ã‚©ãƒ³ãƒˆ")]
     public Font hudFont;
 
-    [Header("“ª‚Ìã‚Ìƒ}[ƒJ[")]
-    [Tooltip("ƒƒ{ƒbƒg‚Ì‘«Œ³(’†S)‚©‚çAƒ}[ƒJ[‚ğo‚·‚‚³")]
+    [Header("é ­ã®ä¸Šã®ãƒãƒ¼ã‚«ãƒ¼")]
+    [Tooltip("ãƒ­ãƒœãƒƒãƒˆã®è¶³å…ƒ(ä¸­å¿ƒ)ã‹ã‚‰ã€ãƒãƒ¼ã‚«ãƒ¼ã‚’å‡ºã™é«˜ã•")]
     public float markerHeight = 1.6f;
     public bool showMarkers = true;
 
-    [Header("êŠOƒ‰ƒCƒ“(‚±‚±‚ğ‰z‚¦‚½‚çKO)")]
+    [Header("å ´å¤–ãƒ©ã‚¤ãƒ³(ã“ã“ã‚’è¶ŠãˆãŸã‚‰KO)")]
     public float blastLeft = -16f;
     public float blastRight = 16f;
     public float blastBottom = -8f;
     public float blastTop = 16f;
 
-    private enum State { SelectDifficulty, Countdown, Playing, Result }
+    private enum State { SelectDifficulty, SelectStage, Countdown, Playing, Result }
     private State state = State.SelectDifficulty;
 
-    // ƒ|[ƒY’†‚©(Esc ‚ÅØ‚è‘Ö‚¦)
+    // ãƒãƒ¼ã‚ºä¸­ã‹(Esc ã§åˆ‡ã‚Šæ›¿ãˆ)
     private bool paused = false;
 
-    // ƒJƒEƒ“ƒgƒ_ƒEƒ“‚ªI‚í‚Á‚Ä‡’†(ƒ|[ƒY’†‚Å‚È‚¢)‚È‚ç trueBCPU ‚Æe‚Í‚±‚ê‚ª true ‚Ì‚Æ‚«‚¾‚¯Œ‚‚Ä‚é
+    // ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ãŒçµ‚ã‚ã£ã¦è©¦åˆä¸­(ãƒãƒ¼ã‚ºä¸­ã§ãªã„)ãªã‚‰ trueã€‚CPU ã¨éŠƒã¯ã“ã‚ŒãŒ true ã®ã¨ãã ã‘æ’ƒã¦ã‚‹
     public bool IsFighting => state == State.Playing && !paused;
 
-    // ===== íÑ(ƒŠƒUƒ‹ƒg‰æ–Ê‚Éo‚·) [0] = ©•ª, [1] = CPU =====
+    // ===== æˆ¦ç¸¾(ãƒªã‚¶ãƒ«ãƒˆç”»é¢ã«å‡ºã™) [0] = è‡ªåˆ†, [1] = CPU =====
     private readonly int[] damageTaken = new int[2];
     private readonly int[] partsLost = new int[2];
     private readonly int[] lastHp = { -1, -1 };
     private float fightTime;
 
-    // ƒV[ƒ“‚ğ“Ç‚İ‚İ’¼‚µ‚Ä‚àŠo‚¦‚Ä‚¨‚­(Äí—p)
+    // ã‚·ãƒ¼ãƒ³ã‚’èª­ã¿è¾¼ã¿ç›´ã—ã¦ã‚‚è¦šãˆã¦ãŠã(å†æˆ¦ç”¨)
     private static int savedDifficulty = -1;
     private static bool skipSelect = false;
+
+    // ã‚¹ãƒ†ãƒ¼ã‚¸(0 = FACTORY ä»Šã¾ã§ã®ã‚¹ãƒ†ãƒ¼ã‚¸ / 1 = SPLIT çœŸã‚“ä¸­ã«ç©´)
+    private static int savedStage = 0;
+    private static readonly string[] stageNames = { "FACTORY", "SPLIT" };
+    private static readonly string[] stageNotes = { "The classic arena", "Mind the gap in the middle" };
     private static readonly string[] difficultyNames = { "EASY", "NORMAL", "HARD" };
 
     private int playerStocks;
@@ -77,7 +82,7 @@ public class MatchManager : MonoBehaviour
     private WeaponSystem playerWeapon;
     private WeaponSystem cpuWeapon;
 
-    // uLEG BROKENv‚È‚Ç‚Ì•¶š‚ğ“ªã‚Éo‚·
+    // ã€ŒLEG BROKENã€ãªã©ã®æ–‡å­—ã‚’é ­ä¸Šã«å‡ºã™
     private class Popup
     {
         public Transform who;
@@ -113,7 +118,7 @@ public class MatchManager : MonoBehaviour
         else if (who == cpu) partsLost[1]++;
     }
 
-    // HP ‚ªŒ¸‚Á‚½•ª‚ğuó‚¯‚½ƒ_ƒ[ƒWv‚Æ‚µ‚Ä”‚¦‚é(•œŠˆ‚Å‘‚¦‚½‚Æ‚«‚Í”‚¦‚È‚¢)
+    // HP ãŒæ¸›ã£ãŸåˆ†ã‚’ã€Œå—ã‘ãŸãƒ€ãƒ¡ãƒ¼ã‚¸ã€ã¨ã—ã¦æ•°ãˆã‚‹(å¾©æ´»ã§å¢—ãˆãŸã¨ãã¯æ•°ãˆãªã„)
     void TrackDamage(HealthSystem fighter, int i)
     {
         if (fighter == null) return;
@@ -122,7 +127,7 @@ public class MatchManager : MonoBehaviour
         lastHp[i] = hp;
     }
 
-    // “ªã‚É•¶š‚ğo‚·(ƒ_ƒ[ƒW‚Ì”š‚Í small = true ‚Å¬‚³‚­A­‚µ‰¡‚É‚¸‚ç‚·)
+    // é ­ä¸Šã«æ–‡å­—ã‚’å‡ºã™(ãƒ€ãƒ¡ãƒ¼ã‚¸ã®æ•°å­—ã¯ small = true ã§å°ã•ãã€å°‘ã—æ¨ªã«ãšã‚‰ã™)
     public void ShowPopup(Transform who, string text, Color color, bool small)
     {
         if (who == null) return;
@@ -158,11 +163,12 @@ public class MatchManager : MonoBehaviour
         SetControl(player, false);
         SetControl(cpu, false);
 
-        // u“¯‚¶‹­‚³‚ÅÄív‚Ì‚Æ‚«‚ÍA‹­‚³‘I‚Ñ‚ğ”ò‚Î‚·
+        // ã€ŒåŒã˜å¼·ã•ã§å†æˆ¦ã€ã®ã¨ãã¯ã€å¼·ã•é¸ã³ã‚’é£›ã°ã™
         if (skipSelect && savedDifficulty >= 0)
         {
             skipSelect = false;
-            ChooseDifficulty(savedDifficulty);
+            ApplyDifficultyOnly(savedDifficulty);
+            ChooseStage(savedStage);
         }
         else
         {
@@ -172,14 +178,72 @@ public class MatchManager : MonoBehaviour
 
     void ChooseDifficulty(int index)
     {
-        savedDifficulty = index;
+        ApplyDifficultyOnly(index);
+        SoundManager.Play("ui");
+        state = State.SelectStage;   // æ¬¡ã¯ã‚¹ãƒ†ãƒ¼ã‚¸é¸ã³
+    }
 
+    void ApplyDifficultyOnly(int index)
+    {
+        savedDifficulty = index;
         var brain = cpu != null ? cpu.GetComponent<CpuController>() : null;
         if (brain != null) brain.ApplyDifficulty((CpuController.Difficulty)index);
+    }
+
+    void ChooseStage(int index)
+    {
+        savedStage = index;
+        ApplyStage(index);
 
         state = State.Countdown;
         countdownLeft = countdownTime;
-        SoundManager.Play("count");   // Å‰‚Ìu3v
+        SoundManager.Play("count");   // æœ€åˆã®ã€Œ3ã€
+    }
+
+    // ===== ã‚¹ãƒ†ãƒ¼ã‚¸ã®ä¸¦ã¹æ›¿ãˆ =====
+    // ã‚·ãƒ¼ãƒ³ã®è¶³å ´(MainFloor / Platform_LowL ãªã©)ã‚’å‹•ã‹ã—ã¦ã€åˆ¥ã®ã‚¹ãƒ†ãƒ¼ã‚¸ã«ã™ã‚‹
+    void ApplyStage(int index)
+    {
+        var brain = cpu != null ? cpu.GetComponent<CpuController>() : null;
+        if (index != 1)
+        {
+            if (brain != null) brain.SetGap(false, 0f, 0f);
+            return; // FACTORY ã¯ã‚·ãƒ¼ãƒ³ã®ã¾ã¾
+        }
+
+        // SPLIT:åºŠã‚’å·¦å³ã®å³¶ã«åˆ†ã‘ã¦ã€çœŸã‚“ä¸­ã«å¹… 4 ã®ç©´
+        GameObject floor = GameObject.Find("MainFloor");
+        if (floor != null)
+        {
+            floor.transform.position = new Vector3(-5.5f, -0.5f, floor.transform.position.z);
+            floor.transform.localScale = new Vector3(7f, floor.transform.localScale.y, 1f);
+            GameObject right = Instantiate(floor, new Vector3(5.5f, -0.5f, floor.transform.position.z), floor.transform.rotation);
+            right.name = "MainFloor_R";
+        }
+
+        // è¶³å ´:ç©´ã®ä¸Šã®æ©‹ã€å·¦å³ã®ä¸­æ®µã€é«˜ã„ã¨ã“ã‚
+        PlacePlatform("Platform_MidL", 0f, 1.6f, 3f);     // ç©´ã®ä¸Šã®æ©‹
+        PlacePlatform("Platform_LowL", -5.5f, 3.0f, 3f);
+        PlacePlatform("Platform_LowR", 5.5f, 3.0f, 3f);
+        PlacePlatform("Platform_MidR", 0f, 4.6f, 4f);
+        GameObject top = PlacePlatform("Platform_Top", -7.5f, 5.8f, 2.4f);
+        if (top != null)
+        {
+            GameObject top2 = Instantiate(top, new Vector3(7.5f, 5.8f, top.transform.position.z), top.transform.rotation);
+            top2.name = "Platform_Top_R";
+        }
+
+        // CPU ã«ç©´ã®å ´æ‰€ã‚’æ•™ãˆã‚‹(è½ã¡ãªã„ã‚ˆã†ã«é£›ã³è¶Šãˆã‚‹)
+        if (brain != null) brain.SetGap(true, -2f, 2f);
+    }
+
+    GameObject PlacePlatform(string objectName, float x, float y, float width)
+    {
+        GameObject p = GameObject.Find(objectName);
+        if (p == null) return null;
+        p.transform.position = new Vector3(x, y, p.transform.position.z);
+        p.transform.localScale = new Vector3(width, p.transform.localScale.y, 1f);
+        return p;
     }
 
     HealthSystem FindFighter(string objectName)
@@ -188,7 +252,7 @@ public class MatchManager : MonoBehaviour
         return go != null ? go.GetComponent<HealthSystem>() : null;
     }
 
-    // •\¦‚Ég‚¤e(—LŒø‚É‚È‚Á‚Ä‚¢‚é•û)‚ğ’T‚·
+    // è¡¨ç¤ºã«ä½¿ã†éŠƒ(æœ‰åŠ¹ã«ãªã£ã¦ã„ã‚‹æ–¹)ã‚’æ¢ã™
     WeaponSystem FindWeapon(HealthSystem fighter)
     {
         if (fighter == null) return null;
@@ -203,7 +267,7 @@ public class MatchManager : MonoBehaviour
 
     void Update()
     {
-        // ===== ƒ|[ƒY =====
+        // ===== ãƒãƒ¼ã‚º =====
         if (state == State.Countdown || state == State.Playing)
         {
             if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))
@@ -215,7 +279,7 @@ public class MatchManager : MonoBehaviour
             {
                 if (Input.GetKeyDown(KeyCode.R)) Reload(true);
                 else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
-                return; // ƒ|[ƒY’†‚Í‡‚ği‚ß‚È‚¢
+                return; // ãƒãƒ¼ã‚ºä¸­ã¯è©¦åˆã‚’é€²ã‚ãªã„
             }
         }
 
@@ -225,6 +289,12 @@ public class MatchManager : MonoBehaviour
                 if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseDifficulty(0);
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseDifficulty(1);
                 else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseDifficulty(2);
+                break;
+
+            case State.SelectStage:
+                if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseStage(0);
+                else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseStage(1);
+                else if (Input.GetKeyDown(KeyCode.Backspace)) state = State.SelectDifficulty; // å¼·ã•é¸ã³ã«æˆ»ã‚‹
                 break;
 
             case State.Countdown:
@@ -263,8 +333,8 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case State.Result:
-                if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // “¯‚¶‹­‚³‚ÅÄí
-                else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // ‹­‚³‚ğ‘I‚Ñ’¼‚·
+                if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // åŒã˜å¼·ã•ã§å†æˆ¦
+                else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // å¼·ã•ã‚’é¸ã³ç›´ã™
                 else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
                 break;
         }
@@ -284,7 +354,7 @@ public class MatchManager : MonoBehaviour
         SoundManager.Play("ui");
         paused = false;
         Time.timeScale = 1f;
-        // ƒJƒEƒ“ƒgƒ_ƒEƒ“’†‚É~‚ß‚½‚Æ‚«‚ÍA‚Ü‚¾“®‚¯‚È‚¢‚Ü‚Ü‚É‚·‚é
+        // ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ä¸­ã«æ­¢ã‚ãŸã¨ãã¯ã€ã¾ã å‹•ã‘ãªã„ã¾ã¾ã«ã™ã‚‹
         if (state == State.Playing)
         {
             SetControl(player, true);
@@ -308,7 +378,7 @@ public class MatchManager : MonoBehaviour
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
-    // êŠO‚Éo‚½‚©AHP ‚ª0‚É‚È‚Á‚½‚ç KO
+    // å ´å¤–ã«å‡ºãŸã‹ã€HP ãŒ0ã«ãªã£ãŸã‚‰ KO
     void CheckKO(HealthSystem fighter, bool isPlayer)
     {
         if (fighter == null) return;
@@ -323,13 +393,18 @@ public class MatchManager : MonoBehaviour
 
     void KnockOut(HealthSystem fighter, bool isPlayer)
     {
-        // KO ‚Ìè‚²‚½‚¦:‘å‚«‚­—h‚ê‚ÄuKO!v
+        // KO ã®æ‰‹ã”ãŸãˆ:å¤§ããæºã‚Œã¦ã€ŒKO!ã€
         CameraFollow.Shake(0.5f, 0.35f);
         ShowPopup(fighter.transform, "KO!", isPlayer ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF), false);
 
+        // KO ã®ç ´ç‰‡(å ´å¤–ãªã‚‰ç”»é¢ã®ä¸­ã«è¦‹ãˆã‚‹ã‚ˆã†ã«ã€ã‚¹ãƒ†ãƒ¼ã‚¸å´ã¸å¯„ã›ã‚‹)
+        Vector3 kp = fighter.transform.position;
+        Vector2 burstPos = new Vector2(Mathf.Clamp(kp.x, blastLeft + 2f, blastRight - 2f), Mathf.Clamp(kp.y, blastBottom + 2f, blastTop - 2f));
+        HitEffect.Burst(burstPos, isPlayer ? new Color32(0x4F, 0xE3, 0xF0, 0xFF) : new Color32(0xFF, 0xB5, 0x47, 0xFF));
+
         fighter.KnockOut();
         SoundManager.Play("ko");
-        // êŠO KO ‚Å HP ‚ª 0 ‚É‚³‚ê‚½•ª‚ÍAƒ_ƒ[ƒW‚É”‚¦‚È‚¢
+        // å ´å¤– KO ã§ HP ãŒ 0 ã«ã•ã‚ŒãŸåˆ†ã¯ã€ãƒ€ãƒ¡ãƒ¼ã‚¸ã«æ•°ãˆãªã„
         lastHp[isPlayer ? 0 : 1] = fighter.currentHealth;
 
         if (isPlayer)
@@ -384,7 +459,7 @@ public class MatchManager : MonoBehaviour
         SetControl(cpu, false);
     }
 
-    // ‘€ì‚Ì ON / OFF(ƒJƒEƒ“ƒgƒ_ƒEƒ“’†‚ÆƒŠƒUƒ‹ƒg’†‚Í“®‚¯‚È‚¢)
+    // æ“ä½œã® ON / OFF(ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ä¸­ã¨ãƒªã‚¶ãƒ«ãƒˆä¸­ã¯å‹•ã‘ãªã„)
     void SetControl(HealthSystem fighter, bool on)
     {
         if (fighter == null) return;
@@ -401,7 +476,7 @@ public class MatchManager : MonoBehaviour
         if (body != null && !on) body.linearVelocity = new Vector2(0f, body.linearVelocity.y);
     }
 
-    // ===== ‰¼‚Ì‰æ–Ê•\¦(–Ø—j‚É‚¿‚á‚ñ‚Æ‚µ‚½ HUD ‚É’u‚«Š·‚¦‚é) =====
+    // ===== ä»®ã®ç”»é¢è¡¨ç¤º(æœ¨æ›œã«ã¡ã‚ƒã‚“ã¨ã—ãŸ HUD ã«ç½®ãæ›ãˆã‚‹) =====
 
     void OnGUI()
     {
@@ -431,8 +506,8 @@ public class MatchManager : MonoBehaviour
         Color amber = new Color32(0xFF, 0xB5, 0x47, 0xFF);
         Color white = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-        // ===== HUD(‡ƒvƒŒƒrƒ…[‚ÌƒfƒUƒCƒ“) =====
-        float k = Screen.height / 720f;   // 1280x720 ‚Åì‚Á‚½ƒfƒUƒCƒ“‚ğ‰æ–Ê‚Ì‘å‚«‚³‚É‡‚í‚¹‚é
+        // ===== HUD(è©¦åˆãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼ã®ãƒ‡ã‚¶ã‚¤ãƒ³) =====
+        float k = Screen.height / 720f;   // 1280x720 ã§ä½œã£ãŸãƒ‡ã‚¶ã‚¤ãƒ³ã‚’ç”»é¢ã®å¤§ãã•ã«åˆã‚ã›ã‚‹
         DrawTimer(k, amber, white);
 
         string cpuSub = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
@@ -441,21 +516,25 @@ public class MatchManager : MonoBehaviour
         DrawHudPanel(true, k, "P2", "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
                      amber, new Color32(0x1F, 0x13, 0x00, 0xFF));
 
-        // “ª‚Ìã‚Ìƒ}[ƒJ[(‰æ–Ê‚ÌŠO‚É‚¢‚é‚Æ‚«‚ÍA‚Ó‚¿‚É–îˆó)
-        if (showMarkers && state != State.SelectDifficulty)
+        // é ­ã®ä¸Šã®ãƒãƒ¼ã‚«ãƒ¼(ç”»é¢ã®å¤–ã«ã„ã‚‹ã¨ãã¯ã€ãµã¡ã«çŸ¢å°)
+        if (showMarkers && state != State.SelectDifficulty && state != State.SelectStage)
         {
             DrawMarker(player, playerWaiting, "P1", cyan, new Color32(0x03, 0x14, 0x17, 0xFF), unit);
             DrawMarker(cpu, cpuWaiting, "CPU", amber, new Color32(0x1F, 0x13, 0x00, 0xFF), unit);
         }
 
-        // •”ˆÊ‚ª‰ó‚ê‚½‚Æ‚«‚Ì•¶š(“ªã‚Éo‚µ‚ÄAã‚É•‚‚©‚Ñ‚È‚ª‚çÁ‚¦‚é)
+        // éƒ¨ä½ãŒå£Šã‚ŒãŸã¨ãã®æ–‡å­—(é ­ä¸Šã«å‡ºã—ã¦ã€ä¸Šã«æµ®ã‹ã³ãªãŒã‚‰æ¶ˆãˆã‚‹)
         DrawPopups(unit);
 
-        // ƒJƒEƒ“ƒgƒ_ƒEƒ“ / FIGHT / Œ‹‰Ê
+        // ã‚«ã‚¦ãƒ³ãƒˆãƒ€ã‚¦ãƒ³ / FIGHT / çµæœ
         Rect center = new Rect(0, Screen.height * 0.3f, Screen.width, unit * 3f);
         if (state == State.SelectDifficulty)
         {
             DrawDifficultySelect(unit, cyan, white);
+        }
+        else if (state == State.SelectStage)
+        {
+            DrawStageSelect(unit, cyan, white);
         }
         else if (state == State.Countdown)
         {
@@ -472,29 +551,29 @@ public class MatchManager : MonoBehaviour
             DrawResult(unit, cyan, amber, white);
         }
 
-        // ƒ|[ƒY‰æ–Ê(ˆê”Ôã‚Éd‚Ë‚é)
+        // ãƒãƒ¼ã‚ºç”»é¢(ä¸€ç•ªä¸Šã«é‡ã­ã‚‹)
         if (paused) DrawPauseMenu(unit, cyan, white);
     }
 
-    // ===== ƒŠƒUƒ‹ƒg‰æ–Ê(Ÿ”sEíÑEƒ{ƒ^ƒ“) =====
+    // ===== ãƒªã‚¶ãƒ«ãƒˆç”»é¢(å‹æ•—ãƒ»æˆ¦ç¸¾ãƒ»ãƒœã‚¿ãƒ³) =====
     void DrawResult(float unit, Color cyan, Color amber, Color white)
     {
-        TrackDamage(player, 0);   // ÅŒã‚ÌˆêŒ‚‚à”‚¦‚é
+        TrackDamage(player, 0);   // æœ€å¾Œã®ä¸€æ’ƒã‚‚æ•°ãˆã‚‹
         TrackDamage(cpu, 1);
 
         Color card = new Color32(0x0D, 0x11, 0x17, 0xF2);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
         Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
 
-        // ‰æ–Ê‚ğˆÃ‚­‚·‚é
+        // ç”»é¢ã‚’æš—ãã™ã‚‹
         Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xB4));
 
-        // Ÿ”s
+        // å‹æ•—
         Color resultColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
         bigStyle.normal.textColor = resultColor;
         GUI.Label(new Rect(0, Screen.height * 0.08f, Screen.width, unit * 3f), resultText, bigStyle);
 
-        // íÑƒJ[ƒh
+        // æˆ¦ç¸¾ã‚«ãƒ¼ãƒ‰
         float w = unit * 16f, rowH = unit * 1.05f;
         string[] labels = { "DAMAGE DEALT", "KO", "PARTS BROKEN", "STOCKS LEFT" };
         int[] you = { damageTaken[1], stockCount - cpuStocks, partsLost[1], playerStocks };
@@ -511,7 +590,7 @@ public class MatchManager : MonoBehaviour
         float colL = x + w * 0.42f, colR = x + w * 0.74f, colW = w * 0.22f;
         float ty = y + unit * 0.5f;
 
-        // Œ©o‚µ(YOU / CPU)
+        // è¦‹å‡ºã—(YOU / CPU)
         smallStyle.alignment = TextAnchor.MiddleCenter;
         smallStyle.normal.textColor = cyan;
         GUI.Label(new Rect(colL, ty, colW, rowH), "YOU", smallStyle);
@@ -526,7 +605,7 @@ public class MatchManager : MonoBehaviour
             tinyStyle.normal.textColor = grey;
             GUI.Label(new Rect(x + unit * 0.8f, ty, w * 0.4f, rowH), labels[i], tinyStyle);
 
-            // ‘½‚¢•û‚ğ–¾‚é‚­(STOCKS LEFT ˆÈŠO‚àu‘½‚¢•û‚ª—Ç‚¢v€–Ú)
+            // å¤šã„æ–¹ã‚’æ˜ã‚‹ã(STOCKS LEFT ä»¥å¤–ã‚‚ã€Œå¤šã„æ–¹ãŒè‰¯ã„ã€é …ç›®)
             bool youBetter = you[i] > them[i], themBetter = them[i] > you[i];
             smallStyle.normal.textColor = youBetter ? white : grey;
             GUI.Label(new Rect(colL, ty, colW, rowH), you[i].ToString(), smallStyle);
@@ -536,7 +615,7 @@ public class MatchManager : MonoBehaviour
         }
         smallStyle.alignment = TextAnchor.MiddleLeft;
 
-        // ‡ŠÔ‚Æ‹­‚³
+        // è©¦åˆæ™‚é–“ã¨å¼·ã•
         int m = Mathf.FloorToInt(fightTime / 60f), sec = Mathf.FloorToInt(fightTime % 60f);
         string level = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
         tinyStyle.alignment = TextAnchor.MiddleCenter;
@@ -544,7 +623,7 @@ public class MatchManager : MonoBehaviour
         GUI.Label(new Rect(x, ty + unit * 0.15f, w, unit * 0.7f), "TIME  " + m + ":" + sec.ToString("00") + "      CPU  " + level, tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
 
-        // ƒ{ƒ^ƒ“(ƒNƒŠƒbƒN‚Å‚àAR / D / T ƒL[‚Å‚à)
+        // ãƒœã‚¿ãƒ³(ã‚¯ãƒªãƒƒã‚¯ã§ã‚‚ã€R / D / T ã‚­ãƒ¼ã§ã‚‚)
         string[] btn = { "REMATCH  [R]", "CHANGE LEVEL  [D]", "TITLE  [T]" };
         float bw = unit * 6.2f, bh = unit * 1.4f, gap = unit * 0.4f;
         float bx = (Screen.width - (bw * 3 + gap * 2)) / 2f;
@@ -574,7 +653,7 @@ public class MatchManager : MonoBehaviour
         Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
 
-        // ‰æ–Ê‘S‘Ì‚ğˆÃ‚­‚·‚é
+        // ç”»é¢å…¨ä½“ã‚’æš—ãã™ã‚‹
         Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xC8));
 
         bigStyle.normal.textColor = white;
@@ -604,13 +683,73 @@ public class MatchManager : MonoBehaviour
         }
     }
 
+    // ã‚¹ãƒ†ãƒ¼ã‚¸é¸ã³(ã‚«ãƒ¼ãƒ‰ã®ä¸­ã«è¶³å ´ã®å½¢ã‚’å°ã•ãæã)
+    void DrawStageSelect(float unit, Color accent, Color white)
+    {
+        Color panel = new Color32(0x07, 0x09, 0x0D, 0xE6);
+        Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
+        Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
+        Color plat = new Color32(0x3A, 0x44, 0x52, 0xFF);
+
+        Fill(new Rect(0, 0, Screen.width, Screen.height), panel);
+
+        midStyle.normal.textColor = white;
+        GUI.Label(new Rect(0, Screen.height * 0.12f, Screen.width, unit * 1.4f), "SELECT STAGE", midStyle);
+
+        float w = unit * 9f, h = unit * 7f, gap = unit * 0.8f;
+        float x0 = (Screen.width - (w * 2 + gap)) / 2f;
+        float y0 = Screen.height * 0.25f;
+
+        // è¶³å ´ã®é…ç½®(ã‚¹ãƒ†ãƒ¼ã‚¸ã®åº§æ¨™:x -10ã€œ10ã€y -1ã€œ7)
+        float[][][] layouts =
+        {
+            new[] { new[]{0f,-0.5f,20f}, new[]{-6.5f,2.2f,3f}, new[]{6.5f,2.2f,3f}, new[]{-3f,4.2f,3f}, new[]{3f,4.2f,3f}, new[]{0f,6.2f,3f} },
+            new[] { new[]{-5.5f,-0.5f,7f}, new[]{5.5f,-0.5f,7f}, new[]{0f,1.6f,3f}, new[]{-5.5f,3f,3f}, new[]{5.5f,3f,3f}, new[]{0f,4.6f,4f}, new[]{-7.5f,5.8f,2.4f}, new[]{7.5f,5.8f,2.4f} },
+        };
+
+        for (int i = 0; i < 2; i++)
+        {
+            Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
+            bool hover = r.Contains(Event.current.mousePosition);
+            Fill(r, card);
+            Border(r, hover ? accent : line, hover ? 2f : 1f);
+
+            // å°ã•ã„åœ°å›³
+            Rect map = new Rect(r.x + unit * 0.5f, r.y + unit * 0.5f, r.width - unit, h * 0.55f);
+            Fill(map, new Color32(0x10, 0x16, 0x1E, 0xFF));
+            float sx = map.width / 22f, sy = map.height / 9f;
+            foreach (float[] p in layouts[i])
+            {
+                float px = map.x + (p[0] - p[2] / 2f + 11f) * sx;
+                float py = map.y + (7.5f - p[1]) * sy;
+                float ph = p[2] >= 7f ? sy * 0.9f : Mathf.Max(3f, sy * 0.3f);
+                Fill(new Rect(px, py, p[2] * sx, ph), plat);
+            }
+
+            midStyle.normal.textColor = hover ? accent : white;
+            GUI.Label(new Rect(r.x, map.yMax + unit * 0.3f, w, unit * 1.1f), (i + 1) + "  " + stageNames[i], midStyle);
+
+            tinyStyle.alignment = TextAnchor.MiddleCenter;
+            tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
+            GUI.Label(new Rect(r.x, map.yMax + unit * 1.4f, w, unit * 0.6f), stageNotes[i], tinyStyle);
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+
+            if (GUI.Button(r, GUIContent.none, GUIStyle.none)) ChooseStage(i);
+        }
+
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
+        GUI.Label(new Rect(0, y0 + h + unit * 0.7f, Screen.width, unit), "Click a card or press 1 / 2      BACKSPACE : change level", tinyStyle);
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
+    }
+
     void DrawDifficultySelect(float unit, Color accent, Color white)
     {
         Color panel = new Color32(0x07, 0x09, 0x0D, 0xD8);
         Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
 
-        // ‰æ–Ê‘S‘Ì‚ğ­‚µˆÃ‚­‚·‚é
+        // ç”»é¢å…¨ä½“ã‚’å°‘ã—æš—ãã™ã‚‹
         Fill(new Rect(0, 0, Screen.width, Screen.height), panel);
 
         midStyle.normal.textColor = white;
@@ -639,7 +778,7 @@ public class MatchManager : MonoBehaviour
             GUI.Label(new Rect(r.x, r.y + h * 0.58f, w, h * 0.3f), notes[i], tinyStyle);
             tinyStyle.alignment = TextAnchor.MiddleLeft;
 
-            // ƒNƒŠƒbƒN‚Å‚à‘I‚×‚é
+            // ã‚¯ãƒªãƒƒã‚¯ã§ã‚‚é¸ã¹ã‚‹
             if (GUI.Button(r, GUIContent.none, GUIStyle.none)) ChooseDifficulty(i);
         }
 
@@ -649,10 +788,10 @@ public class MatchManager : MonoBehaviour
         tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
-    // ===== HUD ‚Ì•”•i =====
+    // ===== HUD ã®éƒ¨å“ =====
 
-    [Header("HUD ‚ÌŒ©‚½–Ú")]
-    [Tooltip("”š‚âƒ‰ƒxƒ‹—p‚Ì“™•ƒtƒHƒ“ƒg(IBM Plex Mono ‚È‚Ç)B‹ó‚È‚ç HUD Font ‚ğg‚¤")]
+    [Header("HUD ã®è¦‹ãŸç›®")]
+    [Tooltip("æ•°å­—ã‚„ãƒ©ãƒ™ãƒ«ç”¨ã®ç­‰å¹…ãƒ•ã‚©ãƒ³ãƒˆ(IBM Plex Mono ãªã©)ã€‚ç©ºãªã‚‰ HUD Font ã‚’ä½¿ã†")]
     public Font monoFont;
 
     private GUIStyle hudName, hudMono, hudNum;
@@ -679,7 +818,7 @@ public class MatchManager : MonoBehaviour
     static readonly Color HudRed = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
     static readonly Color HudWhite = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-    // ã‚Ì^‚ñ’†‚Ìƒ^ƒCƒ}[
+    // ä¸Šã®çœŸã‚“ä¸­ã®ã‚¿ã‚¤ãƒãƒ¼
     void DrawTimer(float k, Color amber, Color white)
     {
         EnsureHudStyles();
@@ -695,7 +834,7 @@ public class MatchManager : MonoBehaviour
         hudMono.alignment = TextAnchor.MiddleLeft;
     }
 
-    // ‰º‚Ì¶‰E‚Ìƒpƒlƒ‹(–¼‘OEƒXƒgƒbƒNEHPE•Ší‚Æ”ME•”ˆÊ)
+    // ä¸‹ã®å·¦å³ã®ãƒ‘ãƒãƒ«(åå‰ãƒ»ã‚¹ãƒˆãƒƒã‚¯ãƒ»HPãƒ»æ­¦å™¨ã¨ç†±ãƒ»éƒ¨ä½)
     void DrawHudPanel(bool rightSide, float k, string badge, string name, string sub,
                       int stocks, HealthSystem fighter, bool waiting, WeaponSystem weapon,
                       Color accent, Color badgeText)
@@ -704,16 +843,16 @@ public class MatchManager : MonoBehaviour
 
         int n = weapon != null ? weapon.WeaponCount : 0;
         int rows = Mathf.Max(1, Mathf.CeilToInt(n / 3f));
-        float W = 420f, H = 62f + rows * 44f - 6f;     // •Ší3‚Â‚Å1’iA6‚Â‚Å2’i
+        float W = 420f, H = 62f + rows * 44f - 6f;     // æ­¦å™¨3ã¤ã§1æ®µã€6ã¤ã§2æ®µ
         float x0 = rightSide ? Screen.width / k - W - 20f : 20f;
         float y0 = Screen.height / k - H - 14f;
 
-        // ƒpƒlƒ‹
+        // ãƒ‘ãƒãƒ«
         Rect panel = R(k, x0, y0, W, H);
         Fill(panel, HudPanel);
         Border(panel, HudLine, 1f);
 
-        // ƒoƒbƒW(P1 / P2)
+        // ãƒãƒƒã‚¸(P1 / P2)
         Rect b = R(k, x0 + 14, y0 + 12, 30, 22);
         Fill(b, accent);
         hudMono.fontSize = Mathf.RoundToInt(12 * k);
@@ -722,7 +861,7 @@ public class MatchManager : MonoBehaviour
         GUI.Label(b, badge, hudMono);
         hudMono.alignment = TextAnchor.MiddleLeft;
 
-        // –¼‘O(‚Æ CPU ‚Ì‹­‚³)
+        // åå‰(ã¨ CPU ã®å¼·ã•)
         hudName.fontSize = Mathf.RoundToInt(16 * k);
         hudName.normal.textColor = HudWhite;
         Rect nr = R(k, x0 + 54, y0 + 12, 100, 22);
@@ -735,7 +874,7 @@ public class MatchManager : MonoBehaviour
             GUI.Label(R(k, x0 + 54 + nw + 8, y0 + 13, 70, 22), sub, hudMono);
         }
 
-        // ƒXƒgƒbƒN(lŠp)
+        // ã‚¹ãƒˆãƒƒã‚¯(å››è§’)
         for (int i = 0; i < stockCount; i++)
         {
             Rect sq = R(k, x0 + 178 + i * 16, y0 + 18, 10, 10);
@@ -759,14 +898,14 @@ public class MatchManager : MonoBehaviour
         Fill(R(k, x0 + 14, y0 + 42, W - 28, 4), HudLine);
         Fill(R(k, x0 + 14, y0 + 42, (W - 28) * Mathf.Clamp01((float)hp / maxHp), 4), low ? HudHot : accent);
 
-        // •ŠíƒXƒƒbƒg(3‚Â‚¸‚Â•À‚×‚é)
+        // æ­¦å™¨ã‚¹ãƒ­ãƒƒãƒˆ(3ã¤ãšã¤ä¸¦ã¹ã‚‹)
         for (int i = 0; i < n; i++)
         {
             float sx = x0 + 14 + (i % 3) * 112, sy = y0 + 54 + (i / 3) * 44;
             DrawWeaponSlot(k, weapon, i, sx, sy, 104, 38, accent);
         }
 
-        // •”ˆÊ(H “ª / A ˜r / L ‹r)
+        // éƒ¨ä½(H é ­ / A è…• / L è„š)
         if (fighter != null && fighter.enablePartDamage)
         {
             string[] labels = { "H", "A", "L" };
@@ -788,7 +927,7 @@ public class MatchManager : MonoBehaviour
         }
     }
 
-    // •ŠíƒXƒƒbƒg1‚Â(ƒAƒCƒRƒ“E–¼‘OE”MƒQ[ƒW)
+    // æ­¦å™¨ã‚¹ãƒ­ãƒƒãƒˆ1ã¤(ã‚¢ã‚¤ã‚³ãƒ³ãƒ»åå‰ãƒ»ç†±ã‚²ãƒ¼ã‚¸)
     void DrawWeaponSlot(float k, WeaponSystem weapon, int i, float sx, float sy, float sw, float sh, Color accent)
     {
         bool current = weapon.CurrentIndex == i;
@@ -801,20 +940,20 @@ public class MatchManager : MonoBehaviour
         Fill(r, HudSlot);
         Border(r, current && !switching ? accent : HudLine, 1f);
 
-        // ‚¿‘Ö‚¦’†:‰º‚Éi‚İ‹ï‡‚Ìƒo[
+        // æŒã¡æ›¿ãˆä¸­:ä¸‹ã«é€²ã¿å…·åˆã®ãƒãƒ¼
         if (switching) Fill(R(k, sx, sy + sh - 2, sw * weapon.SwitchProgress, 2), accent);
 
-        // ƒAƒCƒRƒ“(’e‚Ì”ò‚Ñ•û‚Ìü)
+        // ã‚¢ã‚¤ã‚³ãƒ³(å¼¾ã®é£›ã³æ–¹ã®ç·š)
         Color ic = locked ? HudRed : (current ? accent : HudGrey);
         DrawWeaponIcon(k, wn, sx + 5, sy + 11, ic);
 
-        // –¼‘O
+        // åå‰
         hudMono.fontSize = Mathf.RoundToInt(9.5f * k);
         hudMono.normal.textColor = locked ? HudRed : HudWhite;
         string label = locked ? "OVERHEAT " + Mathf.CeilToInt(weapon.GetLockRemaining(i)) : (i + 1) + " " + wn;
         GUI.Label(R(k, sx + 42, sy + 4, sw - 44, 16), label, hudMono);
 
-        // ”MƒQ[ƒW(ƒI[ƒo[ƒq[ƒg’†‚Íc‚èŠÔ)
+        // ç†±ã‚²ãƒ¼ã‚¸(ã‚ªãƒ¼ãƒãƒ¼ãƒ’ãƒ¼ãƒˆä¸­ã¯æ®‹ã‚Šæ™‚é–“)
         Fill(R(k, sx + 42, sy + 25, sw - 50, 4), HudLine);
         float ratio = locked
             ? Mathf.Clamp01(weapon.GetLockRemaining(i) / Mathf.Max(0.01f, weapon.overheatLockTime))
@@ -823,7 +962,7 @@ public class MatchManager : MonoBehaviour
         Fill(R(k, sx + 42, sy + 25, (sw - 50) * ratio, 4), hc);
     }
 
-    // •Ší‚²‚Æ‚ÌƒAƒCƒRƒ“(64x32 ‚Ìü‚ğ”¼•ª‚Ì‘å‚«‚³‚Å•`‚­)
+    // æ­¦å™¨ã”ã¨ã®ã‚¢ã‚¤ã‚³ãƒ³(64x32 ã®ç·šã‚’åŠåˆ†ã®å¤§ãã•ã§æã)
     void DrawWeaponIcon(float k, string weaponName, float x, float y, Color c)
     {
         float s = 0.5f, t = 2.5f;
@@ -850,11 +989,11 @@ public class MatchManager : MonoBehaviour
             case "GRENADE": Quad(6, 28, 32, -6, 58, 28); break;
             case "SHOTGUN": Line(6, 16, 58, 4); Line(6, 16, 58, 16); Line(6, 16, 58, 28); break;
             case "ROUTE": Line(6, 26, 18, 8); Line(18, 8, 32, 24); Line(32, 24, 44, 6); Line(44, 6, 58, 18); break;
-            default: Line(6, 16, 58, 16); break; // NORMAL ‚È‚Ç
+            default: Line(6, 16, 58, 16); break; // NORMAL ãªã©
         }
     }
 
-    // ‘¾‚³‚Ì‚ ‚éü(‰æ–Ê‚ÌÀ•W‚Å)
+    // å¤ªã•ã®ã‚ã‚‹ç·š(ç”»é¢ã®åº§æ¨™ã§)
     void DrawLineGUI(Vector2 a, Vector2 b, float thick, Color c)
     {
         Vector2 d = b - a;
@@ -866,7 +1005,7 @@ public class MatchManager : MonoBehaviour
         GUI.matrix = m;
     }
 
-    // ƒfƒUƒCƒ“ã‚ÌÀ•W(1280x720)‚ğAÀÛ‚Ì‰æ–Ê‚ÌÀ•W‚É•Ï‚¦‚é
+    // ãƒ‡ã‚¶ã‚¤ãƒ³ä¸Šã®åº§æ¨™(1280x720)ã‚’ã€å®Ÿéš›ã®ç”»é¢ã®åº§æ¨™ã«å¤‰ãˆã‚‹
     static Rect R(float k, float x, float y, float w, float h)
     {
         return new Rect(x * k, y * k, w * k, h * k);
@@ -880,14 +1019,14 @@ public class MatchManager : MonoBehaviour
 
         Vector3 sp = cam.WorldToScreenPoint(fighter.transform.position + Vector3.up * markerHeight);
         if (sp.z < 0f) return;
-        Vector2 p = new Vector2(sp.x, Screen.height - sp.y); // GUI ‚Íã‚ª 0
+        Vector2 p = new Vector2(sp.x, Screen.height - sp.y); // GUI ã¯ä¸ŠãŒ 0
 
         tinyStyle.alignment = TextAnchor.MiddleCenter;
         tinyStyle.normal.textColor = textColor;
         float w = unit * (label.Length > 2 ? 1.5f : 1.1f), h = unit * 0.6f;
         float edge = unit * 0.8f;
 
-        // ‰æ–Ê‚Ì’†:“ª‚Ìã‚Éƒ^ƒO‚Æ ¥
+        // ç”»é¢ã®ä¸­:é ­ã®ä¸Šã«ã‚¿ã‚°ã¨ â–¼
         bool inside = p.x > edge && p.x < Screen.width - edge && p.y > edge && p.y < Screen.height - edge;
         if (inside)
         {
@@ -905,7 +1044,7 @@ public class MatchManager : MonoBehaviour
             return;
         }
 
-        // ‰æ–Ê‚ÌŠO:‚Ó‚¿‚ÉŠñ‚¹‚ÄA‚»‚Ì•ûŒü‚Ö–îˆó
+        // ç”»é¢ã®å¤–:ãµã¡ã«å¯„ã›ã¦ã€ãã®æ–¹å‘ã¸çŸ¢å°
         Vector2 center = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Vector2 dir = (p - center).normalized;
         Vector2 q = new Vector2(Mathf.Clamp(p.x, edge, Screen.width - edge), Mathf.Clamp(p.y, edge, Screen.height - edge));
@@ -917,7 +1056,7 @@ public class MatchManager : MonoBehaviour
         Fill(box, new Color(accent.r, accent.g, accent.b, pulse));
         GUI.Label(box, label, tinyStyle);
 
-        // –îˆó(ƒ^ƒO‚ÌŠO‘¤AƒLƒƒƒ‰‚Ì‚¢‚é•ûŒü)
+        // çŸ¢å°(ã‚¿ã‚°ã®å¤–å´ã€ã‚­ãƒ£ãƒ©ã®ã„ã‚‹æ–¹å‘)
         Matrix4x4 m = GUI.matrix;
         float ang = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
         Vector2 tip = box.center + dir * (Mathf.Max(w, h) * 0.5f + unit * 0.35f);
@@ -956,11 +1095,11 @@ public class MatchManager : MonoBehaviour
             if (screen.z < 0f) continue;
 
             float sx = screen.x;
-            float sy = Screen.height - screen.y - u * unit * 1.2f; // ã‚É•‚‚©‚Ô
+            float sy = Screen.height - screen.y - u * unit * 1.2f; // ä¸Šã«æµ®ã‹ã¶
             Rect r = new Rect(sx - unit * 5f, sy - unit * 0.5f, unit * 10f, unit);
             GUIStyle style = p.small ? tinyStyle : smallStyle;
 
-            // “Ç‚İ‚â‚·‚¢‚æ‚¤‚ÉAˆÃ‚¢‰e‚ğ­‚µ‚¸‚ç‚µ‚Äd‚Ë‚é
+            // èª­ã¿ã‚„ã™ã„ã‚ˆã†ã«ã€æš—ã„å½±ã‚’å°‘ã—ãšã‚‰ã—ã¦é‡ã­ã‚‹
             style.normal.textColor = new Color(0f, 0f, 0f, 0.7f * (1f - u * u));
             GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), p.text, style);
             style.normal.textColor = new Color(p.color.r, p.color.g, p.color.b, 1f - u * u);

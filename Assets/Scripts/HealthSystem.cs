@@ -155,9 +155,16 @@ public class HealthSystem : NetworkBehaviour
 
         DamagePart(part, damage);
         lastHitWasHead = part == Part.Head;
+        hasHitPoint = true;
+        lastHitPoint = hitPoint;
         TakeDamage(damage, knockback);
         lastHitWasHead = false;
+        hasHitPoint = false;
     }
+
+    // ‰Î‰Ô‚ğo‚·ˆÊ’u(’e‚ª“–‚½‚Á‚½êŠ)
+    private bool hasHitPoint;
+    private Vector2 lastHitPoint;
 
     // ¡‚Ü‚Å‚Ç‚¨‚è‚ÌŒÄ‚Ñ•û(ˆÊ’u‚È‚µ = “·‘Ìˆµ‚¢)
     public void TakeDamage(int damage, Vector2 knockback)
@@ -168,6 +175,7 @@ public class HealthSystem : NetworkBehaviour
 
             currentHealth = Mathf.Max(0, currentHealth - damage);
             SoundManager.Play(lastHitWasHead ? "hit_head" : "hit", 0.9f, 0.08f);
+            HitEffect.Spark(hasHitPoint ? lastHitPoint : (Vector2)transform.position + Vector2.up * 0.4f, lastHitWasHead);
             UpdateHPUI();
 
             // HP ‚ªŒ¸‚Á‚Ä‚¢‚é‚Ù‚Ç‹­‚­‚Á”ò‚Ô

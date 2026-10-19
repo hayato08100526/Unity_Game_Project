@@ -68,6 +68,17 @@ public class CpuController : MonoBehaviour
     private int shotsLeft;
     private bool wasDead;
     private WeaponSystem targetWeapon;
+
+    // ステージの真ん中の穴(SPLIT ステージ用)
+    private bool hasGap;
+    private float gapLeft, gapRight;
+
+    public void SetGap(bool on, float left, float right)
+    {
+        hasGap = on;
+        gapLeft = left;
+        gapRight = right;
+    }
     private bool waitingForPlayer;
     private float waitStartTime;
 
@@ -294,6 +305,15 @@ public class CpuController : MonoBehaviour
         float dist = Mathf.Abs(dx);
         bool offStage = me.x < stageLeft || me.x > stageRight;
 
+        // 穴に落ちかけている(穴の上で、床より低い)ときは、近い方の島へ戻る
+        if (hasGap && me.x > gapLeft && me.x < gapRight && me.y < 0.5f)
+        {
+            move = (me.x < (gapLeft + gapRight) / 2f) ? -1f : 1f;
+            if (rb != null && rb.linearVelocity.y < 0f) jump = true;
+            pc.SetCpuInput(move, jump);
+            return;
+        }
+
         if (offStage)
         {
             // 場外に出たら、ステージの中央へ戻ろうとする。落ち始めたら空中ジャンプ
@@ -325,6 +345,18 @@ public class CpuController : MonoBehaviour
             // 端の近くでは、外側へは進まない
             if (me.x < stageLeft + edgeMargin && move < 0f) move = 1f;
             if (me.x > stageRight - edgeMargin && move > 0f) move = -1f;
+
+            // 穴のふちに来たら、ジャンプで飛び越える
+            if (hasGap && pc.IsGrounded)
+            {
+                bool nearLeftEdge = me.x > gapLeft - 1.2f && me.x < gapLeft && move > 0f;
+                bool nearRightEdge = me.x < gapRight + 1.2f && me.x > gapRight && move < 0f;
+                if (nearLeftEdge || nearRightEdge)
+                {
+                    move = Mathf.Sign(move);   // 勢いをつけて
+                    jump = true;
+                }
+            }
 
             // 相手が上の足場にいたら、ジャンプで追いかける
             if (tp.y > me.y + 1.5f && pc.IsGrounded) jump = true;
