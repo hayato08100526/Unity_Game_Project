@@ -19,6 +19,43 @@ public class SoundManager : MonoBehaviour
             PlayerPrefs.Save();
         }
     }
+    // BGM の音量(0〜1)。効果音とは別に保存する
+    public static float MusicVolume
+    {
+        get { return PlayerPrefs.GetFloat("music", 0.6f); }
+        set
+        {
+            PlayerPrefs.SetFloat("music", Mathf.Clamp01(value));
+            PlayerPrefs.Save();
+            if (instance != null && instance.music != null) instance.music.volume = MusicVolume * instance.musicDuck;
+        }
+    }
+
+    private AudioSource music;
+    private float musicDuck = 1f;   // リザルト画面などで少し小さくする
+
+    // BGM を流す(同じ曲がもう流れていれば、そのまま続ける)。ファイルは Resources/Sounds/ に置く
+    public static void PlayMusic(string name)
+    {
+        SoundManager sm = Get();
+        AudioClip clip = sm.Load(name);
+        if (clip == null) return;
+        sm.musicDuck = 1f;
+        sm.music.volume = MusicVolume;
+        if (sm.music.clip == clip && sm.music.isPlaying) return;
+        sm.music.clip = clip;
+        sm.music.loop = true;
+        sm.music.Play();
+    }
+
+    // BGM を少し小さくする(1 で元どおり)
+    public static void DuckMusic(float amount)
+    {
+        SoundManager sm = Get();
+        sm.musicDuck = Mathf.Clamp01(amount);
+        sm.music.volume = MusicVolume * sm.musicDuck;
+    }
+
     [Tooltip("CPU の銃声の大きさ(自分の銃声より少し小さく)")]
     [Range(0f, 1f)] public float cpuShotVolume = 0.55f;
 
@@ -51,6 +88,11 @@ public class SoundManager : MonoBehaviour
         source = gameObject.AddComponent<AudioSource>();
         source.playOnAwake = false;
         source.spatialBlend = 0f; // 2D の音
+
+        music = gameObject.AddComponent<AudioSource>();
+        music.playOnAwake = false;
+        music.loop = true;
+        music.spatialBlend = 0f;
     }
 
     AudioClip Load(string name)

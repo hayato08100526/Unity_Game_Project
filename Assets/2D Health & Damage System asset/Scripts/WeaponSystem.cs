@@ -219,6 +219,29 @@ public class WeaponSystem : NetworkBehaviour
         // CPU はマウスやキーを読まない(CpuController から操作される)
         if (isCpu) return;
 
+        // ===== ゲームパッド =====
+        // ボタンを押したらゲームパッド操作に切り替え、マウスを動かしたらマウス操作に戻る
+        if (AnyPadButton()) UsingGamepad = true;
+        if (Mathf.Abs(Input.GetAxis("Mouse X")) + Mathf.Abs(Input.GetAxis("Mouse Y")) > 0.2f || Input.GetMouseButtonDown(0)) UsingGamepad = false;
+
+        if (UsingGamepad)
+        {
+            // 照準は相手に自動で向く
+            Transform enemy = FindEnemy();
+            Vector2 aimPos = enemy != null ? (Vector2)enemy.position + Vector2.up * 0.5f
+                                           : (Vector2)body.position + Vector2.right * (body.localScale.x >= 0f ? 5f : -5f);
+            CpuAimAt(aimPos);
+
+            // LB = 次の武器 / Y = 前の武器
+            if (Input.GetKeyDown(KeyCode.JoystickButton4)) SwitchToNextWeapon();
+            if (Input.GetKeyDown(KeyCode.JoystickButton3)) SwitchToPreviousWeapon();
+
+            // X か RB で撃つ(ROUTE は相手の上を回り込む線を自動で描く)
+            bool padFire = Input.GetKeyDown(KeyCode.JoystickButton2) || Input.GetKeyDown(KeyCode.JoystickButton5);
+            if (padFire) CpuShootAt(aimPos);
+            return;
+        }
+
         if (aimAtMouse) AimAtMouse();
 
         float scroll = Input.mouseScrollDelta.y;
@@ -248,6 +271,31 @@ public class WeaponSystem : NetworkBehaviour
     void OnDisable()
     {
         CancelRoute();
+    }
+
+    // いまゲームパッドで操作しているか(全部の画面で共通)
+    public static bool UsingGamepad { get; private set; }
+
+    static bool AnyPadButton()
+    {
+        for (int b = 0; b <= 9; b++)
+            if (Input.GetKeyDown(KeyCode.JoystickButton0 + b)) return true;
+        return false;
+    }
+
+    // 一番近い相手(自分以外の HealthSystem)
+    Transform enemyCache;
+    Transform FindEnemy()
+    {
+        if (enemyCache != null && enemyCache.gameObject.activeInHierarchy) return enemyCache;
+        float best = float.MaxValue;
+        foreach (HealthSystem h in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
+        {
+            if (h == null || h.transform == body) continue;
+            float d = ((Vector2)h.transform.position - (Vector2)body.position).sqrMagnitude;
+            if (d < best) { best = d; enemyCache = h.transform; }
+        }
+        return enemyCache;
     }
 
     // ===== ROUTE(線を描いて撃つ) =====

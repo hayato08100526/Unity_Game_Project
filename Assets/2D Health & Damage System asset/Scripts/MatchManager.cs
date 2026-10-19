@@ -65,8 +65,8 @@ public class MatchManager : MonoBehaviour
 
     // ステージ(0 = FACTORY 今までのステージ / 1 = SPLIT 真ん中に穴)
     private static int savedStage = 0;
-    private static readonly string[] stageNames = { "FACTORY", "SPLIT" };
-    private static readonly string[] stageNotes = { "The classic arena", "Mind the gap in the middle" };
+    private static readonly string[] stageNames = { "FACTORY", "SPLIT", "SHIFT" };
+    private static readonly string[] stageNotes = { "The classic arena", "Mind the gap in the middle", "Ride the moving platforms" };
     private static readonly string[] difficultyNames = { "EASY", "NORMAL", "HARD" };
 
     private int playerStocks;
@@ -150,6 +150,9 @@ public class MatchManager : MonoBehaviour
     {
         Time.timeScale = 1f;
 
+        // 対戦の BGM
+        SoundManager.PlayMusic("bgm_battle");
+
         // アイテムを出す係(REPAIR / COOLANT)
         if (spawnItems && GetComponent<ItemSpawner>() == null) gameObject.AddComponent<ItemSpawner>();
 
@@ -188,6 +191,26 @@ public class MatchManager : MonoBehaviour
         ApplyDifficultyOnly(index);
         SoundManager.Play("ui");
         state = State.SelectStage;   // 次はステージ選び
+        menuIndex = savedStage;
+    }
+
+    // ===== 選ぶ画面のカーソル(← → / LB RB で動かして、Enter / A で決定) =====
+    private int menuIndex = 1;
+
+    bool MenuMove(int count)
+    {
+        int d = 0;
+        if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.JoystickButton4)) d = -1;
+        if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.JoystickButton5)) d = 1;
+        if (d == 0) return false;
+        menuIndex = (menuIndex + d + count) % count;
+        SoundManager.Play("ui");
+        return true;
+    }
+
+    bool MenuConfirm()
+    {
+        return Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.JoystickButton0);
     }
 
     void ApplyDifficultyOnly(int index)
@@ -202,6 +225,10 @@ public class MatchManager : MonoBehaviour
         savedStage = index;
         ApplyStage(index);
 
+        // ステージに合わせて背景の雰囲気を変える(BackgroundFX があるとき)
+        var fx = FindFirstObjectByType<BackgroundFX>();
+        if (fx != null) fx.SetMood(index);
+
         state = State.Countdown;
         countdownLeft = countdownTime;
         SoundManager.Play("count");   // 最初の「3」
@@ -212,6 +239,11 @@ public class MatchManager : MonoBehaviour
     void ApplyStage(int index)
     {
         var brain = cpu != null ? cpu.GetComponent<CpuController>() : null;
+        if (index == 2)
+        {
+            ApplyShiftStage(brain);
+            return;
+        }
         if (index != 1)
         {
             if (brain != null) brain.SetGap(false, 0f, 0f);
@@ -242,6 +274,42 @@ public class MatchManager : MonoBehaviour
 
         // CPU に穴の場所を教える(落ちないように飛び越える)
         if (brain != null) brain.SetGap(true, -2f, 2f);
+    }
+
+    // SHIFT:真ん中だけの床 + 左右に動く足場 + 真ん中のエレベーター
+    void ApplyShiftStage(CpuController brain)
+    {
+        GameObject floor = GameObject.Find("MainFloor");
+        if (floor != null)
+        {
+            floor.transform.position = new Vector3(0f, -0.5f, floor.transform.position.z);
+            floor.transform.localScale = new Vector3(12f, floor.transform.localScale.y, 1f);
+        }
+
+        MakeMover(PlacePlatform("Platform_LowL", -8.5f, 2.0f, 3f), new Vector2(2.2f, 0f), 5f, 0f);
+        MakeMover(PlacePlatform("Platform_LowR", 8.5f, 2.0f, 3f), new Vector2(2.2f, 0f), 5f, 0.5f);
+        MakeMover(PlacePlatform("Platform_MidL", 0f, 3.2f, 3f), new Vector2(0f, 1.4f), 4f, 0.25f);
+        PlacePlatform("Platform_MidR", -4.5f, 5.4f, 2.6f);
+        PlacePlatform("Platform_Top", 4.5f, 5.4f, 2.6f);
+
+        // CPU に床の端を教える(床は -6〜6)
+        if (brain != null)
+        {
+            brain.SetGap(false, 0f, 0f);
+            brain.stageLeft = -6f;
+            brain.stageRight = 6f;
+        }
+    }
+
+    void MakeMover(GameObject p, Vector2 offset, float period, float phase)
+    {
+        if (p == null) return;
+        p.name = "Mover_" + p.name;   // アイテムが動く足場の上に出ないように名前を変える
+        var mp = p.GetComponent<MovingPlatform>();
+        if (mp == null) mp = p.AddComponent<MovingPlatform>();
+        mp.offset = offset;
+        mp.period = period;
+        mp.phase = phase;
     }
 
     GameObject PlacePlatform(string objectName, float x, float y, float width)
@@ -277,15 +345,17 @@ public class MatchManager : MonoBehaviour
         // ===== ポーズ =====
         if (state == State.Countdown || state == State.Playing)
         {
-            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))
+            // ポーズ:ESC / P / ゲームパッドの START
+            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.JoystickButton7))
             {
                 if (paused) Resume(); else Pause();
                 return;
             }
             if (paused)
             {
-                if (Input.GetKeyDown(KeyCode.R)) Reload(true);
-                else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
+                if (Input.GetKeyDown(KeyCode.JoystickButton0)) Resume();                                  // A
+                else if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3)) Reload(true); // Y
+                else if (Input.GetKeyDown(KeyCode.T) || Input.GetKeyDown(KeyCode.JoystickButton1)) GoToTitle();  // B
                 return; // ポーズ中は試合を進めない
             }
         }
@@ -296,12 +366,17 @@ public class MatchManager : MonoBehaviour
                 if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseDifficulty(0);
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseDifficulty(1);
                 else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseDifficulty(2);
+                else if (MenuMove(3)) { }
+                else if (MenuConfirm()) ChooseDifficulty(menuIndex);
                 break;
 
             case State.SelectStage:
                 if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseStage(0);
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseStage(1);
-                else if (Input.GetKeyDown(KeyCode.Backspace)) state = State.SelectDifficulty; // 強さ選びに戻る
+                else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseStage(2);
+                else if (MenuMove(stageNames.Length)) { }
+                else if (MenuConfirm()) ChooseStage(menuIndex);
+                else if (Input.GetKeyDown(KeyCode.Backspace) || Input.GetKeyDown(KeyCode.JoystickButton1)) { state = State.SelectDifficulty; menuIndex = 1; } // 強さ選びに戻る
                 break;
 
             case State.Countdown:
@@ -340,8 +415,9 @@ public class MatchManager : MonoBehaviour
                 break;
 
             case State.Result:
-                if (Input.GetKeyDown(KeyCode.R)) Reload(true);   // 同じ強さで再戦
-                else if (Input.GetKeyDown(KeyCode.D)) Reload(false); // 強さを選び直す
+                if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton0)) Reload(true);   // 同じ強さで再戦(A)
+                else if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.JoystickButton3)) Reload(false); // 強さを選び直す(Y)
+                else if (Input.GetKeyDown(KeyCode.JoystickButton1)) GoToTitle();                              // タイトル(B)
                 else if (Input.GetKeyDown(KeyCode.T)) GoToTitle();
                 break;
         }
@@ -350,6 +426,7 @@ public class MatchManager : MonoBehaviour
     void Pause()
     {
         SoundManager.Play("ui");
+        SoundManager.DuckMusic(0.4f);
         paused = true;
         Time.timeScale = 0f;
         SetControl(player, false);
@@ -359,6 +436,7 @@ public class MatchManager : MonoBehaviour
     void Resume()
     {
         SoundManager.Play("ui");
+        SoundManager.DuckMusic(1f);
         paused = false;
         Time.timeScale = 1f;
         // カウントダウン中に止めたときは、まだ動けないままにする
@@ -460,11 +538,17 @@ public class MatchManager : MonoBehaviour
     void EndMatch(string text)
     {
         SoundManager.Play(text == "YOU WIN" ? "win" : "lose");
+        SoundManager.DuckMusic(0.35f);   // リザルト中は BGM を小さく
         state = State.Result;
         resultText = text;
         SetControl(player, false);
         SetControl(cpu, false);
+
+        // 戦績に記録(新記録ならリザルトに出す)
+        recordNews = Records.Report(savedDifficulty, text, fightTime);
     }
+
+    private string recordNews = "";
 
     // 操作の ON / OFF(カウントダウン中とリザルト中は動けない)
     void SetControl(HealthSystem fighter, bool on)
@@ -579,6 +663,16 @@ public class MatchManager : MonoBehaviour
         Color resultColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
         bigStyle.normal.textColor = resultColor;
         GUI.Label(new Rect(0, Screen.height * 0.08f, Screen.width, unit * 3f), resultText, bigStyle);
+
+        // 新記録(点滅)
+        if (!string.IsNullOrEmpty(recordNews))
+        {
+            bool on = Mathf.FloorToInt(Time.unscaledTime * 3f) % 2 == 0;
+            tinyStyle.alignment = TextAnchor.MiddleCenter;
+            tinyStyle.normal.textColor = on ? amber : white;
+            GUI.Label(new Rect(0, Screen.height * 0.08f + unit * 2.55f, Screen.width, unit * 0.8f), recordNews, tinyStyle);
+            tinyStyle.alignment = TextAnchor.MiddleLeft;
+        }
 
         // 戦績カード
         float w = unit * 16f, rowH = unit * 1.05f;
@@ -703,8 +797,10 @@ public class MatchManager : MonoBehaviour
         midStyle.normal.textColor = white;
         GUI.Label(new Rect(0, Screen.height * 0.12f, Screen.width, unit * 1.4f), "SELECT STAGE", midStyle);
 
-        float w = unit * 9f, h = unit * 7f, gap = unit * 0.8f;
-        float x0 = (Screen.width - (w * 2 + gap)) / 2f;
+        int count = stageNames.Length;
+        float gap = unit * 0.7f;
+        float w = Mathf.Min(unit * 9f, (Screen.width - unit * 2f - gap * (count - 1)) / count), h = unit * 7f;
+        float x0 = (Screen.width - (w * count + gap * (count - 1))) / 2f;
         float y0 = Screen.height * 0.25f;
 
         // 足場の配置(ステージの座標:x -10〜10、y -1〜7)
@@ -712,12 +808,13 @@ public class MatchManager : MonoBehaviour
         {
             new[] { new[]{0f,-0.5f,20f}, new[]{-6.5f,2.2f,3f}, new[]{6.5f,2.2f,3f}, new[]{-3f,4.2f,3f}, new[]{3f,4.2f,3f}, new[]{0f,6.2f,3f} },
             new[] { new[]{-5.5f,-0.5f,7f}, new[]{5.5f,-0.5f,7f}, new[]{0f,1.6f,3f}, new[]{-5.5f,3f,3f}, new[]{5.5f,3f,3f}, new[]{0f,4.6f,4f}, new[]{-7.5f,5.8f,2.4f}, new[]{7.5f,5.8f,2.4f} },
+            new[] { new[]{0f,-0.5f,12f}, new[]{-8.5f,2f,3f}, new[]{8.5f,2f,3f}, new[]{0f,3.2f,3f}, new[]{-4.5f,5.4f,2.6f}, new[]{4.5f,5.4f,2.6f} },
         };
 
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < count; i++)
         {
             Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
-            bool hover = r.Contains(Event.current.mousePosition);
+            bool hover = r.Contains(Event.current.mousePosition) || menuIndex == i;   // マウスかカーソル
             Fill(r, card);
             Border(r, hover ? accent : line, hover ? 2f : 1f);
 
@@ -733,6 +830,16 @@ public class MatchManager : MonoBehaviour
                 Fill(new Rect(px, py, p[2] * sx, ph), plat);
             }
 
+            // SHIFT:動く足場の向きを矢印で
+            if (i == 2)
+            {
+                Color arrow = accent;
+                float ay = map.y + (7.5f - 2f) * sy - sy * 0.6f;
+                MiniArrow(new Vector2(map.x + (-8.5f + 11f) * sx, ay), true, sx * 2f, arrow);
+                MiniArrow(new Vector2(map.x + (8.5f + 11f) * sx, ay), true, sx * 2f, arrow);
+                MiniArrow(new Vector2(map.x + 11f * sx + sx * 2f, map.y + (7.5f - 3.2f) * sy), false, sy * 1.2f, arrow);
+            }
+
             midStyle.normal.textColor = hover ? accent : white;
             GUI.Label(new Rect(r.x, map.yMax + unit * 0.3f, w, unit * 1.1f), (i + 1) + "  " + stageNames[i], midStyle);
 
@@ -746,8 +853,34 @@ public class MatchManager : MonoBehaviour
 
         tinyStyle.alignment = TextAnchor.MiddleCenter;
         tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
-        GUI.Label(new Rect(0, y0 + h + unit * 0.7f, Screen.width, unit), "Click a card or press 1 / 2      BACKSPACE : change level", tinyStyle);
+        GUI.Label(new Rect(0, y0 + h + unit * 0.7f, Screen.width, unit), "Click a card or press 1 / 2 / 3      BACKSPACE : change level", tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
+    }
+
+    // 小さい両矢印(horizontal = 横向き、false なら縦向き)
+    void MiniArrow(Vector2 c, bool horizontal, float len, Color col)
+    {
+        float t = 2f, hd = Mathf.Max(3f, len * 0.25f);
+        if (horizontal)
+        {
+            Fill(new Rect(c.x - len / 2f, c.y - t / 2f, len, t), col);
+            for (int k = 0; k < 3; k++)
+            {
+                float s = hd * (1f - k / 3f);
+                Fill(new Rect(c.x - len / 2f + k * 1.5f, c.y - s / 2f, 1.5f, s), col);
+                Fill(new Rect(c.x + len / 2f - (k + 1) * 1.5f, c.y - s / 2f, 1.5f, s), col);
+            }
+        }
+        else
+        {
+            Fill(new Rect(c.x - t / 2f, c.y - len / 2f, t, len), col);
+            for (int k = 0; k < 3; k++)
+            {
+                float s = hd * (1f - k / 3f);
+                Fill(new Rect(c.x - s / 2f, c.y - len / 2f + k * 1.5f, s, 1.5f), col);
+                Fill(new Rect(c.x - s / 2f, c.y + len / 2f - (k + 1) * 1.5f, s, 1.5f), col);
+            }
+        }
     }
 
     void DrawDifficultySelect(float unit, Color accent, Color white)
@@ -772,7 +905,7 @@ public class MatchManager : MonoBehaviour
         for (int i = 0; i < 3; i++)
         {
             Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
-            bool hover = r.Contains(Event.current.mousePosition);
+            bool hover = r.Contains(Event.current.mousePosition) || menuIndex == i;   // マウスかカーソル
 
             Fill(r, card);
             Border(r, hover ? accent : line, hover ? 2f : 1f);

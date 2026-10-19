@@ -145,11 +145,14 @@ public class PlayerController : NetworkBehaviour
 
     void Handle1PInput()
     {
-        moveInput = Input.GetAxisRaw("Horizontal");
-        if (Input.GetButtonDown("Jump")) HandleJump();
+        moveInput = Input.GetAxisRaw("Horizontal");   // 左スティックもここに入る
+        if (Mathf.Abs(moveInput) < 0.3f) moveInput = 0f;
+        // ジャンプ:SPACE か ゲームパッドの A
+        if (Input.GetButtonDown("Jump") || Input.GetKeyDown(KeyCode.JoystickButton0)) HandleJump();
 
+        // ダッシュ:左 SHIFT か ゲームパッドの B
         KeyCode currentDashKey = (isSoloMode || IsOnline) ? KeyCode.LeftShift : dashKey;
-        if (Input.GetKeyDown(currentDashKey) && moveInput != 0) StartCoroutine(Dash());
+        if ((Input.GetKeyDown(currentDashKey) || Input.GetKeyDown(KeyCode.JoystickButton1)) && moveInput != 0) StartCoroutine(Dash());
     }
 
     void Handle2PInput()

@@ -47,22 +47,24 @@ public class TitleScreen : MonoBehaviour
 
     private bool showHowTo = false;
     private bool showSettings = false;
+    private bool showRecords = false;
+    private float resetArmedUntil = -1f;   // RESET を1回押してから、もう1回押せる時間
     private int tab = 0;
-    private static readonly string[] tabNames = { "そうさ", "ぶき", "ルール" };
+    private static readonly string[] tabNames = { "そうさ", "ぶき", "ルール", "ステージ・アイテム" };
 
     // ===== 説明の中身(ゲームの数字を変えたらここも直す) =====
 
     // 見出し, キー, 説明
     private static readonly string[,] controls =
     {
-        { "移動",         "A / D",          "左右に動く" },
-        { "ジャンプ",     "SPACE",          "空中でもう一度押すと 2段ジャンプ" },
+        { "移動",         "A / D",          "左右に動く(パッド:左スティック)" },
+        { "ジャンプ",     "SPACE",          "空中でもう一度押すと 2段ジャンプ(パッド:A)" },
         { "壁キック",     "SPACE",          "空中で壁にふれて押すと、反対側へ跳ぶ" },
-        { "ダッシュ",     "L-SHIFT",        "動きながら押すと、一瞬で前へ進む" },
-        { "ねらう",       "MOUSE",          "マウスのある方へ銃が向く" },
-        { "撃つ",         "CLICK / ENTER",  "押すたびに 1発。武器ごとに撃てる間隔がある" },
-        { "武器を変える", "1-6 / WHEEL",    "数字キーかホイールで持ち替え。少し時間がかかる" },
-        { "ポーズ",       "ESC / P",        "試合を止める。R でやり直し、T でタイトルへ" },
+        { "ダッシュ",     "L-SHIFT",        "動きながら押すと、一瞬で前へ進む(パッド:B)" },
+        { "ねらう",       "MOUSE",          "マウスのある方へ銃が向く(パッドは相手に自動で向く)" },
+        { "撃つ",         "CLICK / ENTER",  "押すたびに 1発。武器ごとに撃てる間隔がある(パッド:X / RB)" },
+        { "武器を変える", "1-6 / WHEEL",    "数字キーかホイールで持ち替え。少し時間がかかる(パッド:LB / Y)" },
+        { "ポーズ",       "ESC / P",        "試合を止める。R でやり直し、T でタイトルへ(パッド:START)" },
     };
 
     private static readonly string[] weaponNames = { "NORMAL", "BOUND", "TRACKING", "SHOTGUN", "GRENADE", "ROUTE" };
@@ -110,14 +112,23 @@ public class TitleScreen : MonoBehaviour
     void Start()
     {
         Time.timeScale = 1f;
+        SoundManager.PlayMusic("bgm_title");
     }
 
     void Update()
     {
+        if (showRecords)
+        {
+            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Backspace) || Input.GetKeyDown(KeyCode.JoystickButton1)) showRecords = false;
+            return;
+        }
+
         if (showSettings)
         {
-            if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) ChangeVolume(+1);
-            if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) ChangeVolume(-1);
+            if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) settingsRow = (settingsRow + 2) % 3;
+            if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) settingsRow = (settingsRow + 1) % 3;
+            if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) { if (settingsRow == 2) ToggleFullscreen(); else ChangeVolume(+1); }
+            if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) { if (settingsRow == 2) ToggleFullscreen(); else ChangeVolume(-1); }
             if (Input.GetKeyDown(KeyCode.F)) ToggleFullscreen();
             if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Backspace)) showSettings = false;
             return;
@@ -131,7 +142,8 @@ public class TitleScreen : MonoBehaviour
             return;
         }
 
-        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+        // Enter かゲームパッドの A で、すぐ CPU 対戦
+        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.JoystickButton0))
             LoadScene(cpuSceneName);
 
         if (Input.GetKeyDown(KeyCode.H)) OpenHowTo();
@@ -139,8 +151,18 @@ public class TitleScreen : MonoBehaviour
     }
 
     // 音量を 10 ずつ変える(変えるたびに音を鳴らして、大きさが分かるように)
+    private int settingsRow = 0;   // 0 = 効果音, 1 = BGM, 2 = 画面
+
+    // 選んでいる行の音量を 10 ずつ変える
     void ChangeVolume(int dir)
     {
+        if (settingsRow == 1)
+        {
+            int m = Mathf.RoundToInt(SoundManager.MusicVolume * 10f) + dir;
+            SoundManager.MusicVolume = Mathf.Clamp(m, 0, 10) / 10f;
+            SoundManager.Play("ui");
+            return;
+        }
         int v = Mathf.RoundToInt(SoundManager.Volume * 10f) + dir;
         SoundManager.Volume = Mathf.Clamp(v, 0, 10) / 10f;
         SoundManager.Play("count");
@@ -205,7 +227,8 @@ public class TitleScreen : MonoBehaviour
 
         Fill(new Rect(0, 0, Screen.width, Screen.height), bg);
 
-        if (showSettings) DrawSettings(unit);
+        if (showRecords) DrawRecords(unit);
+        else if (showSettings) DrawSettings(unit);
         else if (showHowTo) DrawHowTo(unit);
         else DrawTitle(unit);
     }
@@ -222,15 +245,16 @@ public class TitleScreen : MonoBehaviour
         subStyle.normal.textColor = cyan;
         GUI.Label(new Rect(0, Screen.height * 0.1f + unit * 3f, Screen.width, unit), "R O B O T   V E R S U S   S H O O T E R", subStyle);
 
-        float w = unit * 9f, h = unit * 1.35f, gap = unit * 0.35f;
+        float w = unit * 9f, h = unit * 1.2f, gap = unit * 0.3f;
         float x = (Screen.width - w) / 2f;
-        float y = Screen.height * 0.36f;
+        float y = Screen.height * 0.34f;
 
         if (Button(new Rect(x, y, w, h), "VS CPU", true)) LoadScene(cpuSceneName);
         if (Button(new Rect(x, y + (h + gap), w, h), "ONLINE MATCH", false)) LoadScene(onlineSceneName);
         if (Button(new Rect(x, y + (h + gap) * 2, w, h), "HOW TO PLAY", false)) OpenHowTo();
-        if (Button(new Rect(x, y + (h + gap) * 3, w, h), "SETTINGS", false)) showSettings = true;
-        if (Button(new Rect(x, y + (h + gap) * 4, w, h), "QUIT", false)) Application.Quit();
+        if (Button(new Rect(x, y + (h + gap) * 3, w, h), "RECORDS", false)) showRecords = true;
+        if (Button(new Rect(x, y + (h + gap) * 4, w, h), "SETTINGS", false)) showSettings = true;
+        if (Button(new Rect(x, y + (h + gap) * 5, w, h), "QUIT", false)) Application.Quit();
 
         helpStyle.normal.textColor = grey;
         GUI.Label(new Rect(unit, Screen.height - unit * 1.6f, Screen.width - unit * 2f, unit),
@@ -245,56 +269,135 @@ public class TitleScreen : MonoBehaviour
 
         buttonStyle.fontSize = Mathf.RoundToInt(unit * 1.1f);
         buttonStyle.normal.textColor = white;
-        GUI.Label(new Rect(0, Screen.height * 0.12f, Screen.width, unit * 1.6f), "SETTINGS", buttonStyle);
+        GUI.Label(new Rect(0, Screen.height * 0.1f, Screen.width, unit * 1.6f), "SETTINGS", buttonStyle);
         buttonStyle.fontSize = Mathf.RoundToInt(unit * 0.8f);
 
-        float w = unit * 16f, rowH = unit * 2.2f;
+        float w = unit * 16f, rowH = unit * 2.0f, gap = unit * 0.35f;
         float x = (Screen.width - w) / 2f;
-        float y = Screen.height * 0.3f;
+        float y = Screen.height * 0.25f;
 
-        // --- 音量 ---
-        Rect row = new Rect(x, y, w, rowH);
-        Fill(row, card);
-        Border(row, line, 1f);
-        jpHead.normal.textColor = white;
-        GUI.Label(new Rect(row.x + unit * 0.6f, row.y, unit * 4f, rowH), "音量", jpHead);
-
-        int vol = Mathf.RoundToInt(SoundManager.Volume * 10f);
-        float bh = rowH * 0.5f, bw = bh;
-        Rect minus = new Rect(row.x + unit * 4.2f, row.y + (rowH - bh) / 2f, bw, bh);
-        Rect plus = new Rect(row.xMax - unit * 2.6f - bw, minus.y, bw, bh);
-        if (Button(minus, "-", false)) ChangeVolume(-1);
-        if (Button(plus, "+", false)) ChangeVolume(+1);
-
-        // 10 マスのゲージ
-        float gx = minus.xMax + unit * 0.4f, gw = plus.x - unit * 0.4f - gx;
-        float cell = gw / 10f;
-        for (int i = 0; i < 10; i++)
-        {
-            Rect c = new Rect(gx + i * cell + 2f, row.y + rowH * 0.36f, cell - 4f, rowH * 0.28f);
-            if (i < vol) Fill(c, cyan); else Border(c, line, 1f);
-        }
-        chipStyle.normal.textColor = white;
-        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.55f);
-        GUI.Label(new Rect(plus.xMax, row.y, row.xMax - plus.xMax, rowH), (vol * 10).ToString(), chipStyle);
-        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.42f);
+        VolumeRow(new Rect(x, y, w, rowH), unit, "効果音", Mathf.RoundToInt(SoundManager.Volume * 10f), 0);
+        VolumeRow(new Rect(x, y + (rowH + gap), w, rowH), unit, "BGM", Mathf.RoundToInt(SoundManager.MusicVolume * 10f), 1);
 
         // --- 画面 ---
-        Rect row2 = new Rect(x, y + rowH + unit * 0.4f, w, rowH);
+        Rect row2 = new Rect(x, y + (rowH + gap) * 2, w, rowH);
         Fill(row2, card);
-        Border(row2, line, 1f);
+        Border(row2, settingsRow == 2 ? cyan : line, settingsRow == 2 ? 2f : 1f);
+        jpHead.normal.textColor = white;
         GUI.Label(new Rect(row2.x + unit * 0.6f, row2.y, unit * 4f, rowH), "画面", jpHead);
+        float bh = rowH * 0.5f;
         string mode = Screen.fullScreen ? "FULLSCREEN" : "WINDOW";
         Rect toggle = new Rect(row2.x + unit * 4.2f, row2.y + (rowH - bh) / 2f, w - unit * 4.8f, bh);
         if (Button(toggle, mode + "   (F)", Screen.fullScreen)) ToggleFullscreen();
 
         // 戻る
         float backW = unit * 5f, backH = unit * 1.1f;
-        if (Button(new Rect((Screen.width - backW) / 2f, row2.yMax + unit * 1.2f, backW, backH), "BACK", false)) showSettings = false;
+        if (Button(new Rect((Screen.width - backW) / 2f, row2.yMax + unit * 1.0f, backW, backH), "BACK", false)) showSettings = false;
 
         helpStyle.normal.textColor = grey;
         GUI.Label(new Rect(0, Screen.height - unit * 1.2f, Screen.width, unit * 0.8f),
-                  "← → :音量      F:全画面の切り替え      ESC:もどる", helpStyle);
+                  "↑ ↓ :項目      ← → :音量      F:全画面      ESC:もどる", helpStyle);
+    }
+
+    // ===== 戦績 =====
+    void DrawRecords(float unit)
+    {
+        DrawTitleScene(unit);
+        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(bg.r, bg.g, bg.b, 0.65f));
+
+        buttonStyle.fontSize = Mathf.RoundToInt(unit * 1.1f);
+        buttonStyle.normal.textColor = white;
+        GUI.Label(new Rect(0, Screen.height * 0.08f, Screen.width, unit * 1.6f), "RECORDS", buttonStyle);
+        buttonStyle.fontSize = Mathf.RoundToInt(unit * 0.8f);
+
+        string[] rows = { "勝ち", "負け", "引き分け", "勝率", "今の連勝", "最高連勝", "最短勝利" };
+        float labelW = unit * 6f, colW = unit * 6.5f, rowH = unit * 1.0f;
+        float w = labelW + colW * 3f;
+        float x = (Screen.width - w) / 2f;
+        float y = Screen.height * 0.2f;
+        Rect table = new Rect(x, y, w, rowH * (rows.Length + 1) + unit * 0.4f);
+        Fill(table, card);
+        Border(table, line, 1f);
+
+        // 見出し
+        Color[] lvColor = { new Color32(0x5A, 0xF0, 0x8A, 0xFF), cyan, red };
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.55f);
+        for (int lv = 0; lv < 3; lv++)
+        {
+            chipStyle.normal.textColor = lvColor[lv];
+            GUI.Label(new Rect(x + labelW + lv * colW, y + unit * 0.2f, colW, rowH), Records.LevelNames[lv], chipStyle);
+        }
+
+        for (int i = 0; i < rows.Length; i++)
+        {
+            float ry = y + unit * 0.2f + rowH * (i + 1);
+            Fill(new Rect(x + unit * 0.5f, ry, w - unit, 1f), line);
+            jpHead.normal.textColor = grey;
+            jpHead.fontSize = Mathf.RoundToInt(unit * 0.5f);
+            GUI.Label(new Rect(x + unit * 0.7f, ry, labelW, rowH), rows[i], jpHead);
+            jpHead.fontSize = Mathf.RoundToInt(unit * 0.62f);
+
+            for (int lv = 0; lv < 3; lv++)
+            {
+                string v;
+                switch (i)
+                {
+                    case 0: v = Records.Wins(lv).ToString(); break;
+                    case 1: v = Records.Losses(lv).ToString(); break;
+                    case 2: v = Records.Draws(lv).ToString(); break;
+                    case 3: v = Records.Played(lv) == 0 ? "--" : Records.WinRate(lv) + "%"; break;
+                    case 4: v = Records.Streak(lv).ToString(); break;
+                    case 5: v = Records.BestStreak(lv).ToString(); break;
+                    default: v = Records.FormatTime(Records.FastestWin(lv)); break;
+                }
+                chipStyle.normal.textColor = white;
+                GUI.Label(new Rect(x + labelW + lv * colW, ry, colW, rowH), v, chipStyle);
+            }
+        }
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.42f);
+
+        // ボタン
+        float bw = unit * 5f, bh = unit * 1.1f, g = unit * 0.5f;
+        float by = table.yMax + unit * 0.8f;
+        float bx = (Screen.width - (bw * 2 + g)) / 2f;
+        bool armed = Time.unscaledTime < resetArmedUntil;
+        if (Button(new Rect(bx, by, bw, bh), armed ? "SURE? CLICK AGAIN" : "RESET", false))
+        {
+            if (armed) { Records.ResetAll(); resetArmedUntil = -1f; }
+            else resetArmedUntil = Time.unscaledTime + 3f;
+        }
+        if (Button(new Rect(bx + bw + g, by, bw, bh), "BACK", true)) showRecords = false;
+
+        helpStyle.normal.textColor = grey;
+        GUI.Label(new Rect(0, Screen.height - unit * 1.2f, Screen.width, unit * 0.8f),
+                  "RESET は 3秒以内に2回押すと記録を消します      ESC:もどる", helpStyle);
+    }
+
+    // 音量の行(− ゲージ + と数字)
+    void VolumeRow(Rect row, float unit, string label, int vol, int which)
+    {
+        Fill(row, card);
+        Border(row, settingsRow == which ? cyan : line, settingsRow == which ? 2f : 1f);
+        jpHead.normal.textColor = white;
+        GUI.Label(new Rect(row.x + unit * 0.6f, row.y, unit * 4f, row.height), label, jpHead);
+
+        float bh = row.height * 0.5f, bw = bh;
+        Rect minus = new Rect(row.x + unit * 4.2f, row.y + (row.height - bh) / 2f, bw, bh);
+        Rect plus = new Rect(row.xMax - unit * 2.6f - bw, minus.y, bw, bh);
+        if (Button(minus, "-", false)) { settingsRow = which; ChangeVolume(-1); }
+        if (Button(plus, "+", false)) { settingsRow = which; ChangeVolume(+1); }
+
+        float gx = minus.xMax + unit * 0.4f, gw = plus.x - unit * 0.4f - gx;
+        float cell = gw / 10f;
+        for (int i = 0; i < 10; i++)
+        {
+            Rect c = new Rect(gx + i * cell + 2f, row.y + row.height * 0.36f, cell - 4f, row.height * 0.28f);
+            if (i < vol) Fill(c, which == 0 ? cyan : amber); else Border(c, line, 1f);
+        }
+        chipStyle.normal.textColor = white;
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.55f);
+        GUI.Label(new Rect(plus.xMax, row.y, row.xMax - plus.xMax, row.height), (vol * 10).ToString(), chipStyle);
+        chipStyle.fontSize = Mathf.RoundToInt(unit * 0.42f);
     }
 
     // ===== タイトルの絵:夜景の背景と、向かい合う2体のロボット =====
@@ -389,7 +492,8 @@ public class TitleScreen : MonoBehaviour
         Rect body = new Rect(left, tabY + tabH + unit * 0.4f, contentW, Screen.height - (tabY + tabH + unit * 0.4f) - unit * 2.6f);
         if (tab == 0) DrawControls(body, unit);
         else if (tab == 1) DrawWeapons(body, unit);
-        else DrawRules(body, unit);
+        else if (tab == 2) DrawRules(body, unit);
+        else DrawStagesItems(body, unit);
 
         float bw = unit * 5f, bh = unit * 1.1f;
         if (Button(new Rect((Screen.width - bw) / 2f, Screen.height - unit * 2.2f, bw, bh), "BACK", false)) showHowTo = false;
@@ -476,6 +580,119 @@ public class TitleScreen : MonoBehaviour
             GUI.BeginGroup(p);
             AnimWeapon(i, p.width, p.height);
             GUI.EndGroup();
+        }
+    }
+
+    // ===== ステージ・アイテム =====
+    private static readonly string[] stageHeads = { "1  FACTORY", "2  SPLIT", "3  SHIFT" };
+    private static readonly string[] stageTexts =
+    {
+        "広い床と、階段のような足場。まずはここで練習。",
+        "床が左右の島に分かれ、真ん中に穴。穴の近くで当てると相手を落とせる。",
+        "左右に動く足場と、上下するエレベーター。乗ると一緒に運ばれる。",
+    };
+
+    void DrawStagesItems(Rect body, float unit)
+    {
+        float gap = unit * 0.35f;
+        float topH = body.height * 0.6f;
+        float cw = (body.width - gap * 2f) / 3f;
+
+        // 上の段:ステージ 3つ
+        for (int i = 0; i < 3; i++)
+        {
+            Rect r = new Rect(body.x + i * (cw + gap), body.y, cw, topH);
+            Rect p = DrawCard(r, unit, stageHeads[i], "", stageTexts[i], cyan, 0.5f);
+            GUI.BeginGroup(p);
+            DrawStageMap(i, p.width, p.height);
+            GUI.EndGroup();
+        }
+
+        // 下の段:アイテム 2つ
+        float y = body.y + topH + gap;
+        float ih = body.yMax - y;
+        float iw = (body.width - gap) / 2f;
+        string[] heads = { "REPAIR", "COOLANT" };
+        string[] texts = { "HP が 30 回復する。HP が少ないときに取りに行こう。", "全部の武器の熱が 0 になり、オーバーヒートも解ける。" };
+        Color[] cols = { new Color32(0x5A, 0xF0, 0x8A, 0xFF), new Color32(0x6F, 0xA8, 0xFF, 0xFF) };
+        for (int i = 0; i < 2; i++)
+        {
+            Rect r = new Rect(body.x + i * (iw + gap), y, iw, ih);
+            Fill(r, card);
+            Border(r, line, 1f);
+
+            // アイコン(ふわふわ上下)
+            float s = Mathf.Min(ih * 0.6f, unit * 2.2f);
+            float bob = Mathf.Sin(T * 3f + i) * unit * 0.08f;
+            Rect icon = new Rect(r.x + unit * 0.6f, r.y + (ih - s) / 2f + bob, s, s);
+            DrawItemIcon(icon, cols[i], i == 0);
+
+            jpHead.normal.textColor = cols[i];
+            GUI.Label(new Rect(icon.xMax + unit * 0.6f, r.y + ih * 0.12f, r.width - s - unit * 1.8f, unit * 0.9f), heads[i], jpHead);
+            jpText.normal.textColor = white;
+            GUI.Label(new Rect(icon.xMax + unit * 0.6f, r.y + ih * 0.12f + unit * 0.9f, r.width - s - unit * 1.8f, ih * 0.7f), texts[i], jpText);
+        }
+    }
+
+    // ステージの小さい地図(SHIFT は足場が動く)
+    void DrawStageMap(int i, float w, float h)
+    {
+        Color plat = new Color32(0x4E, 0x5A, 0x6C, 0xFF);
+        float sx = w / 22f, sy = h / 9f;
+        void P(float x, float y, float width, bool floor)
+        {
+            float ph = floor ? sy * 0.9f : Mathf.Max(3f, sy * 0.3f);
+            Fill(new Rect((x - width / 2f + 11f) * sx, (7.5f - y) * sy, width * sx, ph), plat);
+        }
+
+        if (i == 0)
+        {
+            P(0f, -0.5f, 20f, true); P(-6.5f, 2.2f, 3f, false); P(6.5f, 2.2f, 3f, false);
+            P(-3f, 4.2f, 3f, false); P(3f, 4.2f, 3f, false); P(0f, 6.2f, 3f, false);
+        }
+        else if (i == 1)
+        {
+            P(-5.5f, -0.5f, 7f, true); P(5.5f, -0.5f, 7f, true); P(0f, 1.6f, 3f, false);
+            P(-5.5f, 3f, 3f, false); P(5.5f, 3f, 3f, false); P(0f, 4.6f, 4f, false);
+            P(-7.5f, 5.8f, 2.4f, false); P(7.5f, 5.8f, 2.4f, false);
+            // 穴を赤く
+            Fill(new Rect(9f * sx, 7.5f * sy, 4f * sx, h - 7.5f * sy), new Color(red.r, red.g, red.b, 0.25f));
+        }
+        else
+        {
+            float a = Mathf.Sin(T / 5f * Mathf.PI * 2f) * 2.2f;
+            float b = Mathf.Sin((T / 4f + 0.25f) * Mathf.PI * 2f) * 1.4f;
+            P(0f, -0.5f, 12f, true);
+            P(-8.5f + a, 2f, 3f, false); P(8.5f - a, 2f, 3f, false);
+            P(0f, 3.2f + b, 3f, false);
+            P(-4.5f, 5.4f, 2.6f, false); P(4.5f, 5.4f, 2.6f, false);
+        }
+    }
+
+    // アイテムのアイコン(ゲームの中と同じ形)
+    void DrawItemIcon(Rect r, Color c, bool cross)
+    {
+        Color dark = new Color(0.03f, 0.04f, 0.05f, 1f);
+        float px = r.width / 16f;
+        Fill(new Rect(r.x + px, r.y + px, r.width - px * 2f, r.height - px * 2f), dark);
+        Border(new Rect(r.x + px, r.y + px, r.width - px * 2f, r.height - px * 2f), c, Mathf.Max(2f, px));
+        float cx = r.center.x, cy = r.center.y, t = px * 2.6f, L = px * 9f;
+        if (cross)
+        {
+            Fill(new Rect(cx - t / 2f, cy - L / 2f, t, L), c);
+            Fill(new Rect(cx - L / 2f, cy - t / 2f, L, t), c);
+        }
+        else
+        {
+            float t2 = px * 1.4f;
+            Fill(new Rect(cx - t2 / 2f, cy - L * 0.6f, t2, L * 1.2f), c);
+            Fill(new Rect(cx - L * 0.6f, cy - t2 / 2f, L * 1.2f, t2), c);
+            for (int k = -3; k <= 3; k++)
+            {
+                float d = k * px * 1.2f;
+                Fill(new Rect(cx + d - t2 / 2f, cy + d - t2 / 2f, t2, t2), c);
+                Fill(new Rect(cx + d - t2 / 2f, cy - d - t2 / 2f, t2, t2), c);
+            }
         }
     }
 

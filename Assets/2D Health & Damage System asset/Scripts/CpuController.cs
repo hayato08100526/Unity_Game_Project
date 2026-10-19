@@ -44,6 +44,14 @@ public class CpuController : MonoBehaviour
     public float restMin = 1.5f;
     public float restMax = 2.5f;
 
+    [Header("かしこさ")]
+    [Tooltip("向かってくる弾をジャンプでよける確率(0〜1)")]
+    [Range(0f, 1f)] public float dodgeChance = 0.45f;
+    [Tooltip("オン:距離や位置で武器を選ぶ / オフ:ランダムに持ち替える")]
+    public bool smartWeapons = true;
+    [Tooltip("武器を選び直す間隔(秒)")]
+    public float smartWeaponInterval = 1.2f;
+
     [Header("先手はプレイヤーに譲る")]
     [Tooltip("オン:試合開始のあと、プレイヤーが1発撃つまで CPU は撃たない")]
     public bool waitForPlayerFirstShot = false;
@@ -95,6 +103,8 @@ public class CpuController : MonoBehaviour
                 fireIntervalMax = 1.8f;
                 aimError = 1.4f;
                 randomJumpChance = 0.05f;
+                dodgeChance = 0.15f;
+                smartWeapons = false;
                 preferredDistance = 6f;
                 weaponChangeInterval = 8f;
                 startDelay = 1.5f;
@@ -112,6 +122,9 @@ public class CpuController : MonoBehaviour
                 fireIntervalMax = 1.2f;
                 aimError = 0.6f;
                 randomJumpChance = 0.1f;
+                dodgeChance = 0.45f;
+                smartWeapons = true;
+                smartWeaponInterval = 1.2f;
                 preferredDistance = 5f;
                 weaponChangeInterval = 6f;
                 startDelay = 1f;
@@ -129,6 +142,9 @@ public class CpuController : MonoBehaviour
                 fireIntervalMax = 0.7f;
                 aimError = 0.25f;
                 randomJumpChance = 0.18f;
+                dodgeChance = 0.8f;
+                smartWeapons = true;
+                smartWeaponInterval = 0.6f;
                 preferredDistance = 4.5f;
                 weaponChangeInterval = 4f;
                 startDelay = 0.5f;
@@ -288,19 +304,84 @@ public class CpuController : MonoBehaviour
             }
         }
 
-        // ときどき武器を持ち替える
+        // 武器を持ち替える(かしこいときは状況で選ぶ、そうでなければランダム)
         weaponTimer -= Time.deltaTime;
         if (weaponTimer <= 0f)
         {
-            weaponTimer = weaponChangeInterval;
+            weaponTimer = smartWeapons ? smartWeaponInterval : weaponChangeInterval;
             if (weapon != null && weapon.WeaponCount > 1)
-                weapon.CpuSetWeapon(Random.Range(0, weapon.WeaponCount));
+            {
+                int pick = smartWeapons ? ChooseWeapon(me, tp) : Random.Range(0, weapon.WeaponCount);
+                if (pick >= 0 && pick != weapon.CurrentIndex) weapon.CpuSetWeapon(pick);
+            }
         }
+    }
+
+    // ===== 武器の使い分け =====
+    // 状況に合う武器を、よい順に並べて、使えるもの(熱すぎない・ロックされていない)を選ぶ
+    int ChooseWeapon(Vector2 me, Vector2 tp)
+    {
+        float dist = Vector2.Distance(me, tp);
+        bool targetAbove = tp.y > me.y + 1.5f;
+        bool targetLow = targetHealth != null && targetHealth.currentHealth <= targetHealth.maxHealth * 0.4f;
+        bool targetNearEdge = tp.x < stageLeft + 2.5f || tp.x > stageRight - 2.5f;
+
+        string[] order;
+        if (targetLow && targetNearEdge && dist < 9f) order = new[] { "GRENADE", "SHOTGUN", "NORMAL" };   // 押し出してとどめ
+        else if (dist < 4f) order = new[] { "SHOTGUN", "NORMAL", "BOUND" };                              // 近い
+        else if (targetAbove) order = new[] { "BOUND", "ROUTE", "TRACK" };                               // 上の足場
+        else if (dist > 9f) order = new[] { "TRACK", "ROUTE", "NORMAL" };                                // 遠い
+        else order = new[] { "NORMAL", "BOUND", "TRACK" };                                               // ふつう
+
+        foreach (string want in order)
+        {
+            int i = FindWeapon(want);
+            if (i >= 0 && !weapon.IsLocked(i) && weapon.GetHeat(i) < 70f) return i;
+        }
+        return weapon.CoolestWeapon();
+    }
+
+    int FindWeapon(string prefix)
+    {
+        for (int i = 0; i < weapon.WeaponCount; i++)
+        {
+            string n = weapon.GetWeaponName(i);
+            if (n != null && n.ToUpper().StartsWith(prefix)) return i;
+        }
+        return -1;
+    }
+
+    // ===== 弾よけ =====
+    // 近くで、自分の方へ飛んでくる弾があるか
+    static readonly Collider2D[] nearby = new Collider2D[16];
+
+    bool IncomingBullet(Vector2 me)
+    {
+        ContactFilter2D f = new ContactFilter2D();
+        f.useTriggers = true;
+        int n = Physics2D.OverlapCircle(me + Vector2.up * 0.5f, 3.2f, f, nearby);
+        for (int i = 0; i < n; i++)
+        {
+            Collider2D c = nearby[i];
+            if (c == null) continue;
+            bool isBullet = c.GetComponent<Bullet>() != null || c.GetComponent<RouteBullet>() != null || c.GetComponent<GrenadeBullet>() != null;
+            if (!isBullet) continue;
+
+            Rigidbody2D brb = c.attachedRigidbody;
+            Vector2 v = brb != null ? brb.linearVelocity : Vector2.zero;
+            if (v.sqrMagnitude < 4f) continue;
+            Vector2 toMe = me + Vector2.up * 0.5f - (Vector2)c.transform.position;
+            if (Vector2.Dot(v.normalized, toMe.normalized) > 0.6f) return true;   // こっちに向かってくる
+        }
+        return false;
     }
 
     void Think(Vector2 me, Vector2 tp)
     {
         bool jump = false;
+
+        // 向かってくる弾をよける(強さで確率が変わる)
+        if (dodgeChance > 0f && pc.IsGrounded && IncomingBullet(me) && Random.value < dodgeChance) jump = true;   // 空中ジャンプは復帰用に残す
         float dx = tp.x - me.x;
         float dist = Mathf.Abs(dx);
         bool offStage = me.x < stageLeft || me.x > stageRight;
