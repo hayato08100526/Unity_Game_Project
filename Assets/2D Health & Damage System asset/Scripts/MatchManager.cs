@@ -54,6 +54,7 @@ public class MatchManager : MonoBehaviour
     // カウントダウンが終わって試合中(ポーズ中でない)なら true。CPU と銃はこれが true のときだけ撃てる
     // (オンラインではポーズしても試合は止まらないので、ポーズ中も true)
     public bool IsFighting => state == State.Playing && (!paused || IsOnlineMode);
+    public bool IsPaused => paused;
 
     // ===== オンライン対戦 =====
     // 同じオブジェクトに OnlineMatch が付いていれば、オンライン対戦として動く
@@ -84,8 +85,8 @@ public class MatchManager : MonoBehaviour
 
     // ステージ(0 = FACTORY 今までのステージ / 1 = SPLIT 真ん中に穴)
     private static int savedStage = 0;
-    private static readonly string[] stageNames = { "FACTORY", "SPLIT", "SHIFT" };
-    private static readonly string[] stageNotes = { "The classic arena", "Mind the gap in the middle", "Ride the moving platforms" };
+    private static readonly string[] stageNames = { "FACTORY", "SPLIT", "SHIFT", "TOWER" };
+    private static readonly string[] stageNotes = { "The classic arena", "Mind the gap in the middle", "Ride the moving platforms", "Wall-kick up the shaft" };
     private static readonly string[] difficultyNames = { "EASY", "NORMAL", "HARD" };
 
     private int playerStocks;
@@ -291,6 +292,11 @@ public class MatchManager : MonoBehaviour
             ApplyShiftStage(brain);
             return;
         }
+        if (index == 3)
+        {
+            ApplyTowerStage(brain);
+            return;
+        }
         if (index != 1)
         {
             if (brain != null) brain.SetGap(false, 0f, 0f);
@@ -346,6 +352,55 @@ public class MatchManager : MonoBehaviour
             brain.stageLeft = -6f;
             brain.stageRight = 6f;
         }
+    }
+
+    // TOWER:真ん中に壁キックで登る「たて穴」、両はしに壁。上に高い足場
+    void ApplyTowerStage(CpuController brain)
+    {
+        GameObject floor = GameObject.Find("MainFloor");
+        if (floor != null)
+        {
+            // 床の絵の 1 マスあたりの大きさ(壁を同じ見た目で作るため、広げる前に測る)
+            Collider2D fc = floor.GetComponent<Collider2D>();
+            Vector3 sc = floor.transform.localScale;
+            float unitW = fc != null ? fc.bounds.size.x / Mathf.Max(0.01f, Mathf.Abs(sc.x)) : 1f;
+            float unitH = fc != null ? fc.bounds.size.y / Mathf.Max(0.01f, Mathf.Abs(sc.y)) : 1f;
+
+            // 壁(左右のはし と たて穴の2枚)。x, 下のはしの y, 幅, 高さ
+            MakeWall(floor, "Wall_OuterL", -8.2f, 0f, 0.6f, 5f, unitW, unitH);
+            MakeWall(floor, "Wall_OuterR", 8.2f, 0f, 0.6f, 5f, unitW, unitH);
+            MakeWall(floor, "Wall_ShaftL", -1.9f, 2.1f, 0.6f, 5.4f, unitW, unitH);
+            MakeWall(floor, "Wall_ShaftR", 1.9f, 2.1f, 0.6f, 5.4f, unitW, unitH);
+
+            floor.transform.position = new Vector3(0f, -0.5f, floor.transform.position.z);
+            floor.transform.localScale = new Vector3(17f, sc.y, 1f);
+        }
+
+        // 足場:左右に2段ずつ、たて穴の上にふた
+        PlacePlatform("Platform_LowL", -5f, 2.2f, 3f);
+        PlacePlatform("Platform_LowR", 5f, 2.2f, 3f);
+        PlacePlatform("Platform_MidL", -5.2f, 4.6f, 2.6f);
+        PlacePlatform("Platform_MidR", 5.2f, 4.6f, 2.6f);
+        PlacePlatform("Platform_Top", 0f, 8f, 4.4f);
+
+        if (brain != null)
+        {
+            brain.SetGap(false, 0f, 0f);
+            brain.stageLeft = -7.6f;
+            brain.stageRight = 7.6f;
+        }
+    }
+
+    // 床をコピーして、縦長の壁にする(名前が Wall_ なので、アイテムは上に出ない)
+    void MakeWall(GameObject floor, string wallName, float x, float bottomY, float width, float height, float unitW, float unitH)
+    {
+        GameObject w = Instantiate(floor, new Vector3(x, bottomY + height / 2f, floor.transform.position.z), Quaternion.identity);
+        w.name = wallName;
+        w.transform.localScale = new Vector3(width / Mathf.Max(0.01f, unitW), height / Mathf.Max(0.01f, unitH), 1f);
+        // 一方通行の足場の設定が付いていたら外す(壁は通りぬけない)
+        var eff = w.GetComponent<PlatformEffector2D>();
+        if (eff != null) Destroy(eff);
+        foreach (Collider2D c in w.GetComponents<Collider2D>()) c.usedByEffector = false;
     }
 
     void MakeMover(GameObject p, Vector2 offset, float period, float phase)
@@ -427,6 +482,7 @@ public class MatchManager : MonoBehaviour
                 if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseStage(0);
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseStage(1);
                 else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseStage(2);
+                else if (Input.GetKeyDown(KeyCode.Alpha4)) ChooseStage(3);
                 else if (MenuMove(stageNames.Length)) { }
                 else if (MenuConfirm()) ChooseStage(menuIndex);
                 else if (Input.GetKeyDown(KeyCode.Backspace) || Input.GetKeyDown(KeyCode.JoystickButton1)) { state = State.SelectDifficulty; menuIndex = 1; } // 強さ選びに戻る
@@ -968,8 +1024,8 @@ public class MatchManager : MonoBehaviour
         Color plat = new Color32(0x3A, 0x44, 0x52, 0xFF);
         Color grey = new Color(0.55f, 0.6f, 0.66f);
         // ステージごとの空の色(FACTORY 夜 / SPLIT 夕焼け / SHIFT 嵐)
-        Color[] sky = { new Color32(0x10, 0x16, 0x24, 0xFF), new Color32(0x3A, 0x1E, 0x2C, 0xFF), new Color32(0x14, 0x1A, 0x22, 0xFF) };
-        Color[] skyTop = { new Color32(0x07, 0x0A, 0x12, 0xFF), new Color32(0x1C, 0x10, 0x2A, 0xFF), new Color32(0x0A, 0x0D, 0x12, 0xFF) };
+        Color[] sky = { new Color32(0x10, 0x16, 0x24, 0xFF), new Color32(0x3A, 0x1E, 0x2C, 0xFF), new Color32(0x14, 0x1A, 0x22, 0xFF), new Color32(0x0E, 0x1C, 0x22, 0xFF) };
+        Color[] skyTop = { new Color32(0x07, 0x0A, 0x12, 0xFF), new Color32(0x1C, 0x10, 0x2A, 0xFF), new Color32(0x0A, 0x0D, 0x12, 0xFF), new Color32(0x06, 0x0C, 0x10, 0xFF) };
 
         DrawMenuBackdrop(accent, EaseOut(UiAge / 0.3f));
         DrawHeading("SELECT STAGE", Screen.height * 0.1f, unit, accent, white);
@@ -986,6 +1042,9 @@ public class MatchManager : MonoBehaviour
             new[] { new[]{0f,-0.5f,20f}, new[]{-6.5f,2.2f,3f}, new[]{6.5f,2.2f,3f}, new[]{-3f,4.2f,3f}, new[]{3f,4.2f,3f}, new[]{0f,6.2f,3f} },
             new[] { new[]{-5.5f,-0.5f,7f}, new[]{5.5f,-0.5f,7f}, new[]{0f,1.6f,3f}, new[]{-5.5f,3f,3f}, new[]{5.5f,3f,3f}, new[]{0f,4.6f,4f}, new[]{-7.5f,5.8f,2.4f}, new[]{7.5f,5.8f,2.4f} },
             new[] { new[]{0f,-0.5f,12f}, new[]{-8.5f,2f,3f}, new[]{8.5f,2f,3f}, new[]{0f,3.2f,3f}, new[]{-4.5f,5.4f,2.6f}, new[]{4.5f,5.4f,2.6f} },
+            // TOWER(4つめの数字があるものは壁:x, 下の y, 幅, 高さ)
+            new[] { new[]{0f,-0.5f,17f}, new[]{-5f,2.2f,3f}, new[]{5f,2.2f,3f}, new[]{-5.2f,4.6f,2.6f}, new[]{5.2f,4.6f,2.6f}, new[]{0f,7.3f,4.4f},
+                    new[]{-8.2f,0f,0.6f,5f}, new[]{8.2f,0f,0.6f,5f}, new[]{-1.9f,2.1f,0.6f,5.4f}, new[]{1.9f,2.1f,0.6f,5.4f} },
         };
 
         for (int i = 0; i < count; i++)
@@ -1028,6 +1087,14 @@ public class MatchManager : MonoBehaviour
                 float px = map.x + (pl[0] + ox - pl[2] / 2f + 11f) * sx;
                 float py = map.y + (7.5f - pl[1] - oy) * sy;
                 float ph = pl[2] >= 7f ? sy * 0.9f : Mathf.Max(3f, sy * 0.3f);
+                if (pl.Length > 3)   // 壁(縦長)
+                {
+                    py = map.y + (7.5f - pl[1] - pl[3]) * sy;
+                    ph = pl[3] * sy;
+                    Fill(new Rect(px, py, Mathf.Max(2f, pl[2] * sx), ph), A(plat, enter));
+                    Fill(new Rect(px, py, Mathf.Max(2f, pl[2] * sx), 1f), A(hover ? accent : grey, 0.5f * enter));
+                    continue;
+                }
                 Fill(new Rect(px, py, pl[2] * sx, ph), A(plat, enter));
                 Fill(new Rect(px, py, pl[2] * sx, 1f), A(hover ? accent : grey, 0.5f * enter));
             }
@@ -1046,7 +1113,7 @@ public class MatchManager : MonoBehaviour
 
         tinyStyle.alignment = TextAnchor.MiddleCenter;
         tinyStyle.normal.textColor = grey;
-        string hint = IsOnlineMode ? "←  →  to choose      ENTER / A  to start" : "←  →  to choose      ENTER / A  to start      BACKSPACE / B  change level";
+        string hint = IsOnlineMode ? "←  →  to choose      ENTER / A  to start      1 - 4" : "←  →  to choose      ENTER / A  to start      1 - 4      BACKSPACE / B  change level";
         GUI.Label(new Rect(0, y0 + h + unit * 0.9f, Screen.width, unit), hint, tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
@@ -1672,6 +1739,7 @@ public class MatchManager : MonoBehaviour
                 if (Input.GetKeyDown(KeyCode.Alpha1)) ChooseStage(0);
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) ChooseStage(1);
                 else if (Input.GetKeyDown(KeyCode.Alpha3)) ChooseStage(2);
+                else if (Input.GetKeyDown(KeyCode.Alpha4)) ChooseStage(3);
                 else if (MenuMove(stageNames.Length)) { }
                 else if (MenuConfirm()) ChooseStage(menuIndex);
                 break;

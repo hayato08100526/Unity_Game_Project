@@ -56,6 +56,14 @@ public class Bullet : MonoBehaviour
             return;
         }
 
+        // 床や壁(すり抜け足場以外の、かたいもの)に当たったら、火花を出して消える
+        if (!collision.isTrigger && collision.GetComponent<PlatformEffector2D>() == null)
+        {
+            HitEffect.Spark(transform.position, false);
+            Destroy(gameObject);
+            return;
+        }
+
         // 敵(Enemyタグ)に当たった時の処理
         if (collision.CompareTag("Enemy"))
         {

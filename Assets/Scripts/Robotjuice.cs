@@ -42,6 +42,51 @@ public class RobotJuice : MonoBehaviour
         bool orange = pc != null && (pc.isCpu || (pc.IsSpawned && pc.OwnerClientId != 0));
         team = orange ? Amber : Cyan;
         if (hs != null) lastHp = hs.currentHealth;
+        lastPos = transform.position;
+    }
+
+    // 自分が操作しているロボットか(CPU 戦なら Player、オンラインなら自分の方)
+    public bool IsLocalHuman => pc != null && !pc.isCpu && (!pc.IsSpawned || pc.IsOwner);
+
+    // ===== 反動:撃つと銃が後ろに下がって、すぐ戻る =====
+    private readonly Dictionary<WeaponSystem, Vector3> gunBase = new Dictionary<WeaponSystem, Vector3>();
+    private readonly Dictionary<WeaponSystem, float> gunKick = new Dictionary<WeaponSystem, float>();
+
+    void LateUpdate()
+    {
+        foreach (var kv in gunKick)
+        {
+            WeaponSystem ws = kv.Key;
+            if (ws == null || !gunBase.ContainsKey(ws)) continue;
+            float k = kv.Value;
+            Vector3 back = ws.transform.localRotation * Vector3.left;
+            ws.transform.localPosition = gunBase[ws] + back * (0.18f * k);
+        }
+        var keys = new List<WeaponSystem>(gunKick.Keys);
+        foreach (var ws in keys) gunKick[ws] = Mathf.MoveTowards(gunKick[ws], 0f, Time.deltaTime * 9f);
+    }
+
+    void Kick(WeaponSystem ws, float strength)
+    {
+        if (!gunBase.ContainsKey(ws)) gunBase[ws] = ws.transform.localPosition;
+        gunKick[ws] = Mathf.Clamp01(strength);
+    }
+
+    // 動きの演出用(相手の画面のロボットは物理で動いていないので、位置の変化から速さを出す)
+    private Vector2 lastPos;
+    private Vector2 prevVel;
+    private bool wasDashing;
+    private float nextThrust;
+
+    bool IsRemote => pc != null && pc.IsSpawned && !pc.IsOwner;
+
+    bool GroundedNow()
+    {
+        if (!IsRemote) return pc.IsGrounded;
+        Vector2 f = Feet();
+        foreach (RaycastHit2D h in Physics2D.RaycastAll(f + Vector2.up * 0.05f, Vector2.down, 0.2f))
+            if (h.collider != null && !h.collider.isTrigger && !h.collider.transform.IsChildOf(transform)) return true;
+        return false;
     }
 
     void Update()
@@ -49,8 +94,13 @@ public class RobotJuice : MonoBehaviour
         MuzzleFlashes();
         if (rb == null || pc == null) return;
 
-        Vector2 v = rb.linearVelocity;
-        bool grounded = pc.IsGrounded;
+        Vector2 pos = transform.position;
+        Vector2 v = IsRemote ? (Time.deltaTime > 0f ? (pos - lastPos) / Time.deltaTime : Vector2.zero) : rb.linearVelocity;
+        lastPos = pos;
+        bool grounded = GroundedNow();
+
+        MoveFx(v, grounded);
+        prevVel = v;
 
         // ダッシュの残像(普通に走るより、ずっと速く動いているとき)
         if (Mathf.Abs(v.x) > pc.moveSpeed * 1.35f && Time.time >= nextGhost)
@@ -74,6 +124,8 @@ public class RobotJuice : MonoBehaviour
         }
         if (!wasGrounded && grounded)
         {
+            if (maxFallSpeed > 11f)
+                Fx.MakeShaped(Feet(), Vector2.zero, new Color(1f, 1f, 1f, 0.7f), new Vector2(1.4f, 0.32f), 0.28f, 21, Fx.Ring(), 2f);
             if (maxFallSpeed > 7f)
             {
                 int n = maxFallSpeed > 14f ? 5 : 3;
@@ -113,6 +165,14 @@ public class RobotJuice : MonoBehaviour
             if (ws.LastShotTime > last + 0.0001f)
             {
                 lastShots[ws] = ws.LastShotTime;
+                // 反動(重い武器ほど大きく)。自分の弾は画面も少しゆれる
+                float heavy = Mathf.Clamp01(HeatOf(ws) / 45f);
+                Kick(ws, 0.5f + 0.5f * heavy);
+                if (IsLocalHuman)
+                {
+                    CameraFollow.Shake(0.03f + 0.07f * heavy, 0.07f);
+                    Manager.OnLocalShot(heavy);
+                }
                 Transform fp = ws.firePoint != null ? ws.firePoint : ws.transform;
                 Vector2 dir = fp.right;
                 Fx.Make(fp.position, Vector2.zero, Color.white, 0.55f, 0.06f, 0f, 23, Fx.Soft(), 0f);
@@ -125,6 +185,80 @@ public class RobotJuice : MonoBehaviour
             }
         }
     }
+
+    static float HeatOf(WeaponSystem ws)
+    {
+        int i = ws.CurrentIndex;
+        if (ws.bulletPrefabs == null || i < 0 || i >= ws.bulletPrefabs.Length || ws.bulletPrefabs[i] == null) return 10f;
+        WeaponInfo info = ws.bulletPrefabs[i].GetComponent<WeaponInfo>();
+        return info != null ? info.heatPerShot : 10f;
+    }
+
+    // ================= ダッシュ・空中ジャンプ・壁キックの演出 =================
+    void MoveFx(Vector2 v, bool grounded)
+    {
+        if (hs != null && hs.currentHealth <= 0) { wasDashing = false; return; }
+        Vector2 center = (Vector2)transform.position + Vector2.up * 0.4f;
+
+        // ダッシュ:始まった瞬間に衝撃の輪と、うしろへ流れる線。ダッシュ中は背中からジェット
+        bool dashing = Mathf.Abs(v.x) > pc.moveSpeed * 1.6f;
+        if (dashing)
+        {
+            float dir = Mathf.Sign(v.x);
+            if (!wasDashing)
+            {
+                SoundManager.Play("dash", IsLocalHuman ? 0.8f : 0.5f, 0.08f);
+                Fx.MakeShaped(center, Vector2.zero, new Color(1f, 1f, 1f, 0.8f), new Vector2(0.5f, 1.4f), 0.22f, 21, Fx.Ring(), 2.2f);
+                for (int i = 0; i < 7; i++)
+                {
+                    Vector2 p = center + new Vector2(-dir * Random.Range(0f, 0.6f), Random.Range(-0.7f, 0.7f));
+                    Color c = i % 3 == 0 ? Color.white : team;
+                    Fx.MakeShaped(p, new Vector2(-dir * Random.Range(9f, 14f), 0f), A(c, 0.85f), new Vector2(Random.Range(0.9f, 1.6f), 0.07f), Random.Range(0.15f, 0.25f), 21, Fx.Streak(), 0f);
+                }
+                if (grounded)
+                    for (int i = 0; i < 4; i++)
+                        Puff(Feet(), new Vector2(-dir * Random.Range(2f, 5f), Random.Range(0.3f, 1.2f)), Random.Range(1f, 1.5f), 0.35f);
+            }
+            if (Time.time >= nextThrust)
+            {
+                nextThrust = Time.time + 0.025f;
+                Vector2 back = center + new Vector2(-dir * 0.45f, Random.Range(-0.15f, 0.1f));
+                Fx.MakeShaped(back, new Vector2(-dir * Random.Range(3f, 6f), Random.Range(-0.5f, 0.5f)), Random.value < 0.4f ? new Color(1f, 0.95f, 0.8f, 0.9f) : A(team, 0.9f),
+                              new Vector2(0.45f, 0.22f), 0.14f, 4, Fx.Flame(), 0f, dir > 0 ? 0f : 180f);
+            }
+        }
+        wasDashing = dashing;
+
+        // 空中で急に上向きになった = 空中ジャンプか壁キック
+        bool upKick = !grounded && v.y > 4f && v.y - prevVel.y > 6f;
+        if (upKick)
+        {
+            bool wallKick = Mathf.Abs(v.x) > 6f && (Mathf.Abs(prevVel.x) < 2f || Mathf.Sign(prevVel.x) != Mathf.Sign(v.x));
+            if (wallKick)
+            {
+                // 壁を蹴った側に火花と縦の輪
+                float wallDir = -Mathf.Sign(v.x);
+                Vector2 wp = center + new Vector2(wallDir * 0.45f, 0f);
+                Fx.MakeShaped(wp, Vector2.zero, new Color(1f, 1f, 1f, 0.85f), new Vector2(0.35f, 1.2f), 0.2f, 21, Fx.Ring(), 1.6f);
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector2 d = new Vector2(-wallDir * Random.Range(0.3f, 1f), Random.Range(-1f, 1f)).normalized;
+                    Fx.Make(wp, d * Random.Range(4f, 9f), i % 2 == 0 ? Color.white : team, 0.1f, Random.Range(0.12f, 0.22f), 6f, 23, Fx.Dot(), 0f);
+                }
+            }
+            else
+            {
+                // 足元に、平たい衝撃の輪と、下向きの噴射
+                Vector2 f = Feet();
+                Fx.MakeShaped(f, Vector2.zero, A(team, 0.9f), new Vector2(1.2f, 0.3f), 0.25f, 21, Fx.Ring(), 1.8f);
+                for (int i = 0; i < 3; i++)
+                    Fx.MakeShaped(f + new Vector2(Random.Range(-0.2f, 0.2f), 0f), new Vector2(Random.Range(-1f, 1f), -Random.Range(3f, 6f)),
+                                  i == 0 ? new Color(1f, 0.95f, 0.8f, 0.9f) : A(team, 0.85f), new Vector2(0.4f, 0.22f), 0.16f, 4, Fx.Flame(), 0f, 90f);
+            }
+        }
+    }
+
+    static Color A(Color c, float a) => new Color(c.r, c.g, c.b, c.a * a);
 
     // ================= 残像 =================
     void SpawnGhost()
@@ -196,6 +330,86 @@ public class RobotJuice : MonoBehaviour
                 dot = Sprite.Create(t, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 4f);   // 1 マスの四角
             }
             return dot;
+        }
+
+        private static Sprite ring, streak, flame;
+
+        // 縦横の大きさがちがう粒(輪・線・炎)。angle で向きを変える
+        public static void MakeShaped(Vector2 pos, Vector2 vel, Color c, Vector2 size, float life, int order, Sprite sp, float grow, float angle = 0f)
+        {
+            GameObject go = new GameObject("Fx");
+            go.transform.position = new Vector3(pos.x, pos.y, -1f);
+            go.transform.rotation = Quaternion.Euler(0f, 0f, angle);
+            go.transform.localScale = new Vector3(size.x, size.y, 1f);
+            SpriteRenderer r = go.AddComponent<SpriteRenderer>();
+            r.sprite = sp;
+            r.color = c;
+            r.sortingOrder = order;
+            Fx fx = go.AddComponent<Fx>();
+            fx.grow = grow;
+            fx.Init(vel, life, 0f, grow <= 0f);
+        }
+
+        // 輪(衝撃波)
+        public static Sprite Ring()
+        {
+            if (ring == null)
+            {
+                const int S = 64;
+                Texture2D t = new Texture2D(S, S, TextureFormat.RGBA32, false);
+                for (int y = 0; y < S; y++)
+                    for (int x = 0; x < S; x++)
+                    {
+                        float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(S / 2f, S / 2f)) / (S / 2f);
+                        float a = Mathf.Clamp01(1f - Mathf.Abs(d - 0.85f) * 9f);
+                        t.SetPixel(x, y, new Color(1, 1, 1, a));
+                    }
+                t.Apply();
+                ring = Sprite.Create(t, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), S);
+            }
+            return ring;
+        }
+
+        // 流れる線(真ん中が明るく、両はしが消える)
+        public static Sprite Streak()
+        {
+            if (streak == null)
+            {
+                const int W = 64, H = 8;
+                Texture2D t = new Texture2D(W, H, TextureFormat.RGBA32, false);
+                for (int y = 0; y < H; y++)
+                    for (int x = 0; x < W; x++)
+                    {
+                        float u = x / (W - 1f), vv = Mathf.Abs(y + 0.5f - H / 2f) / (H / 2f);
+                        float a = Mathf.Sin(u * Mathf.PI) * (1f - vv * vv);
+                        t.SetPixel(x, y, new Color(1, 1, 1, a));
+                    }
+                t.Apply();
+                streak = Sprite.Create(t, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), W);
+            }
+            return streak;
+        }
+
+        // 炎(しずくの形。右が太く、左へ細くなる)
+        public static Sprite Flame()
+        {
+            if (flame == null)
+            {
+                const int W = 32, H = 16;
+                Texture2D t = new Texture2D(W, H, TextureFormat.RGBA32, false);
+                for (int y = 0; y < H; y++)
+                    for (int x = 0; x < W; x++)
+                    {
+                        float u = x / (W - 1f);                       // 0 = 先 / 1 = 根もと
+                        float half = Mathf.Lerp(0.08f, 1f, Mathf.Sqrt(u)) * (1f - Mathf.Pow(u, 6f));
+                        float vv = Mathf.Abs(y + 0.5f - H / 2f) / (H / 2f);
+                        float a = Mathf.Clamp01((half - vv) * 4f) * Mathf.Clamp01(u * 3f);
+                        t.SetPixel(x, y, new Color(1, 1, 1, a));
+                    }
+                t.Apply();
+                flame = Sprite.Create(t, new Rect(0, 0, W, H), new Vector2(0.5f, 0.5f), W);
+            }
+            return flame;
         }
 
         public static void Make(Vector2 pos, Vector2 vel, Color c, float size, float life, float grav, int order, Sprite sp, float grow)
@@ -288,6 +502,102 @@ public class RobotJuice : MonoBehaviour
             }
         }
 
+        // ===== 照準(マウスの位置に出す十字)とヒットマーカー =====
+        private float shotKick;            // 撃った直後は十字が広がる
+        private float hitConfirmAt = -10f; // 自分の弾が当たった時刻
+        private struct Marker { public Vector3 world; public float t; }
+        private readonly List<Marker> markers = new List<Marker>();
+        private bool cursorHidden;
+
+        public static void OnLocalShot(float heavy)
+        {
+            if (instance != null) instance.shotKick = Mathf.Max(instance.shotKick, 0.6f + 0.4f * heavy);
+        }
+
+        // 自分の弾が当たったとき(HealthSystem から呼ばれる)
+        public static void HitConfirm(Vector2 worldPos)
+        {
+            if (instance == null) return;
+            instance.hitConfirmAt = Time.unscaledTime;
+            instance.markers.Add(new Marker { world = worldPos, t = Time.unscaledTime });
+        }
+
+        bool ShowCrosshair()
+        {
+            MatchManager mm = MatchManager.Instance;
+            return mm != null && mm.IsFighting && !mm.IsPaused && !WeaponSystem.UsingGamepad;
+        }
+
+        void DrawCrosshair()
+        {
+            bool show = ShowCrosshair();
+            if (show != cursorHidden)
+            {
+                cursorHidden = show;
+                Cursor.visible = !show;   // 試合中は、ふつうのマウスの矢印を隠す
+            }
+
+            // ヒットマーカー(当たった場所に × が出て、少し大きくなりながら消える)
+            Camera cam = Camera.main;
+            for (int i = markers.Count - 1; i >= 0; i--)
+            {
+                float age = Time.unscaledTime - markers[i].t;
+                if (age > 0.3f || cam == null) { markers.RemoveAt(i); continue; }
+                Vector3 sp = cam.WorldToScreenPoint(markers[i].world);
+                Vector2 c = new Vector2(sp.x, Screen.height - sp.y);
+                float u = age / 0.3f;
+                float s = Screen.height * (0.014f + 0.01f * u);
+                DrawX(c, s, 3f, new Color(1f, 1f, 1f, 1f - u));
+            }
+
+            if (!show) return;
+            shotKick = Mathf.MoveTowards(shotKick, 0f, Time.unscaledDeltaTime * 4f);
+            Vector2 m = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+            float unit = Screen.height / 100f;
+            float gap = unit * (0.9f + 1.6f * shotKick);
+            float len = unit * 1.3f;
+            float th = Mathf.Max(2f, unit * 0.3f);
+            bool hit = Time.unscaledTime - hitConfirmAt < 0.18f;
+            Color col = hit ? new Color32(0xFF, 0x5A, 0x5A, 0xFF) : new Color(1f, 1f, 1f, 0.9f);
+            Color shadow = new Color(0f, 0f, 0f, 0.5f);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Color cc = pass == 0 ? shadow : col;
+                float o = pass == 0 ? 1.5f : 0f;
+                Box(new Rect(m.x - th / 2f + o, m.y - gap - len + o, th, len), cc);
+                Box(new Rect(m.x - th / 2f + o, m.y + gap + o, th, len), cc);
+                Box(new Rect(m.x - gap - len + o, m.y - th / 2f + o, len, th), cc);
+                Box(new Rect(m.x + gap + o, m.y - th / 2f + o, len, th), cc);
+                Box(new Rect(m.x - th / 2f + o, m.y - th / 2f + o, th, th), cc);
+            }
+            if (hit) DrawX(m, gap + len * 0.6f, 2f, col);
+        }
+
+        void Box(Rect r, Color c)
+        {
+            Color prev = GUI.color;
+            GUI.color = c;
+            GUI.DrawTexture(r, Texture2D.whiteTexture);
+            GUI.color = prev;
+        }
+
+        void DrawX(Vector2 c, float size, float thick, Color col)
+        {
+            Matrix4x4 keep = GUI.matrix;
+            for (int k = 0; k < 2; k++)
+            {
+                GUIUtility.RotateAroundPivot(k == 0 ? 45f : -45f, c);
+                Box(new Rect(c.x - size, c.y - thick / 2f, size * 0.7f, thick), col);
+                Box(new Rect(c.x + size * 0.3f, c.y - thick / 2f, size * 0.7f, thick), col);
+                GUI.matrix = keep;
+            }
+        }
+
+        void OnDisable()
+        {
+            if (cursorHidden) Cursor.visible = true;
+        }
+
         // ===== ヒットストップ =====
         private float hitStopUntil = -1f;
         private const float HitStopScale = 0.02f;
@@ -312,6 +622,8 @@ public class RobotJuice : MonoBehaviour
 
         void OnGUI()
         {
+            GUI.depth = -50;
+            DrawCrosshair();
             float u = (Time.unscaledTime - flashStart) / 0.3f;
             if (u < 0f || u > 1f) return;
             GUI.depth = -100;

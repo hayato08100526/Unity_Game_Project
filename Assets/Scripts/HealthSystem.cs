@@ -176,6 +176,13 @@ public class HealthSystem : NetworkBehaviour
     // (自分の画面で当たったのに、ラグで当たらなかったことにされる、をなくす)
     public void TakeDamageFrom(Transform shooter, int damage, Vector2 knockback, Vector2 hitPoint)
     {
+        // 自分が撃った弾が当たったら、照準とヒットマーカーで知らせる
+        if (shooter != null && currentHealth > 0 && !IsInvincible)
+        {
+            RobotJuice rj = shooter.GetComponentInParent<RobotJuice>();
+            if (rj != null && rj.IsLocalHuman) RobotJuice.Manager.HitConfirm(hitPoint);
+        }
+
         if (!IsOnline)
         {
             TakeDamage(damage, knockback, hitPoint);

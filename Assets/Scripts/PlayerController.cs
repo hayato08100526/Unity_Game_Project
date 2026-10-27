@@ -29,6 +29,34 @@ public class PlayerController : NetworkBehaviour
     public float wallJumpSideForce = 12f;
     public LayerMask wallLayer;
     public Transform wallCheck;
+    [Tooltip("壁にふれて、壁の方へ押しながら落ちるときの速さの上限(壁ずり)")]
+    public float wallSlideSpeed = 2.5f;
+    [Tooltip("壁キックのあと、操作が効きにくい時間(秒)。すぐ壁に戻らないように")]
+    public float wallJumpLockTime = 0.15f;
+
+    private int wallSide;                 // -1 = 左に壁 / 1 = 右に壁 / 0 = なし
+    private float lastWallTime = -10f;
+    private int lastWallSide;
+    private float wallJumpLockUntil = -10f;
+    private static readonly ContactPoint2D[] contactBuf = new ContactPoint2D[16];
+
+    // 体にふれている「縦の面」(壁)を調べる。レイヤーの設定がなくても動く
+    // (法線 = 面から自分の方を向く矢印。右を向いていれば、左に壁がある)
+    int FindWallSide()
+    {
+        int n = rb.GetContacts(contactBuf);
+        for (int i = 0; i < n; i++)
+        {
+            Collider2D other = contactBuf[i].collider;
+            if (other == null || other.isTrigger) continue;
+            if (other.attachedRigidbody == rb) other = contactBuf[i].otherCollider;
+            if (other != null && other.GetComponentInParent<HealthSystem>() != null) continue;   // 相手のロボットは壁ではない
+            Vector2 nrm = contactBuf[i].normal;
+            if (nrm.x > 0.7f) return -1;
+            if (nrm.x < -0.7f) return 1;
+        }
+        return 0;
+    }
 
     [Header("ダッシュ設定")]
     public float dashSpeed = 20f;
@@ -163,8 +191,12 @@ public class PlayerController : NetworkBehaviour
             lastGroundedTime = Time.time;
             jumpedSinceGrounded = false;
         }
-        isTouchingWall = wallCheck != null &&
+        wallSide = isGrounded ? 0 : FindWallSide();
+        if (wallSide != 0) { lastWallTime = Time.time; lastWallSide = wallSide; }
+        bool layerWall = wallCheck != null && wallLayer.value != 0 &&
                          Physics2D.OverlapCircle(wallCheck.position, 0.2f, wallLayer);
+        // 壁から離れた直後(0.08 秒)も、壁キックできる
+        isTouchingWall = !isGrounded && (wallSide != 0 || layerWall || Time.time - lastWallTime < 0.08f);
 
         GetPlayerInput();
 
@@ -285,7 +317,7 @@ public class PlayerController : NetworkBehaviour
         // 横:いきなり最高速にせず、加速・減速させる(吹き飛び中は操作が効きにくい)
         float target = moveInput * moveSpeed * SpeedMul * externalSpeedMul;
         float accel;
-        if (Time.time < knockbackUntil) accel = airAcceleration * 0.25f;
+        if (Time.time < knockbackUntil || Time.time < wallJumpLockUntil) accel = airAcceleration * 0.25f;
         else if (isGrounded) accel = Mathf.Abs(target) > 0.01f ? groundAcceleration : groundDeceleration;
         else accel = airAcceleration;
         v.x = Mathf.MoveTowards(v.x, target, accel * Time.fixedDeltaTime);
@@ -293,6 +325,10 @@ public class PlayerController : NetworkBehaviour
         // 縦:落ちるときは重力を強く(ふわっとしない)、落ちる速さには上限
         rb.gravityScale = v.y < 0f ? baseGravity * fallGravityMultiplier : baseGravity;
         if (v.y < -maxFallSpeed) v.y = -maxFallSpeed;
+
+        // 壁ずり:壁の方へ押しながら落ちると、ゆっくりずり落ちる
+        if (wallSide != 0 && v.y < -wallSlideSpeed && Mathf.Abs(moveInput) > 0.1f && Mathf.Sign(moveInput) == wallSide)
+            v.y = -wallSlideSpeed;
 
         rb.linearVelocity = v;
     }
@@ -309,9 +345,15 @@ public class PlayerController : NetworkBehaviour
 
     void WallJump()
     {
-        float direction = (moveInput != 0) ? -moveInput : (transform.position.x > 0 ? -1 : 1);
-        rb.linearVelocity = new Vector2(direction * wallJumpSideForce, wallJumpForce);
+        // 壁と反対の方へ跳ぶ
+        int side = wallSide != 0 ? wallSide : lastWallSide;
+        float direction = side != 0 ? -side : ((moveInput != 0) ? -Mathf.Sign(moveInput) : (transform.position.x > 0 ? -1 : 1));
+        rb.linearVelocity = new Vector2(direction * wallJumpSideForce, wallJumpForce * JumpMul);
         jumpRising = true;
+        wallJumpLockUntil = Time.time + wallJumpLockTime;
+        airJumpsLeft = maxAirJumps;   // 壁キックすると、空中ジャンプがもう一度使える
+        lastWallTime = -10f;
+        if (!isCpu) SoundManager.Play("jump", 0.6f, 0.05f);
     }
 
     IEnumerator Dash()
