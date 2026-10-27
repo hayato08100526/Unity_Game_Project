@@ -502,7 +502,6 @@ public class MatchManager : MonoBehaviour
 
     void GoToTitle()
     {
-        if (!Application.CanStreamedLevelBeLoaded(titleSceneName)) return;
         paused = false;
         Time.timeScale = 1f;
 
@@ -513,7 +512,9 @@ public class MatchManager : MonoBehaviour
             nm.Shutdown();
             Destroy(nm.gameObject);
         }
-        SceneManager.LoadScene(titleSceneName);
+        // タイトルのシーン名がまちがっていても、ビルドの一番上のシーン(タイトル)に戻る
+        if (Application.CanStreamedLevelBeLoaded(titleSceneName)) SceneManager.LoadScene(titleSceneName);
+        else SceneManager.LoadScene(0);
     }
 
     void Reload(bool sameDifficulty)
@@ -658,6 +659,14 @@ public class MatchManager : MonoBehaviour
             }
         }
 
+        // 画面が切り替わった瞬間を覚える(入ってくるアニメーション用)
+        if (state != uiState)
+        {
+            uiState = state;
+            uiStateTime = Time.unscaledTime;
+            for (int c = 0; c < cardLift.Length; c++) cardLift[c] = 0f;
+        }
+
         float unit = Screen.height / 20f;
         bigStyle.fontSize = Mathf.RoundToInt(unit * 2.4f);
         midStyle.fontSize = Mathf.RoundToInt(unit * 1.0f);
@@ -678,9 +687,9 @@ public class MatchManager : MonoBehaviour
         Color cyanDark = new Color32(0x03, 0x14, 0x17, 0xFF), amberDark = new Color32(0x1F, 0x13, 0x00, 0xFF);
         Color meCol = meHost ? cyan : amber, meDark = meHost ? cyanDark : amberDark;
         Color rivalCol = meHost ? amber : cyan, rivalDark = meHost ? amberDark : cyanDark;
-        DrawHudPanel(false, k, meHost ? "P1" : "P2", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
+        DrawHudPanel(0, false, k, meHost ? "P1" : "P2", "YOU", "", playerStocks, player, playerWaiting, playerWeapon,
                      meCol, meDark);
-        DrawHudPanel(true, k, meHost ? "P2" : "P1", IsOnlineMode ? "RIVAL" : "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
+        DrawHudPanel(1, true, k, meHost ? "P2" : "P1", IsOnlineMode ? "RIVAL" : "CPU", cpuSub, cpuStocks, cpu, cpuWaiting, cpuWeapon,
                      rivalCol, rivalDark);
 
         // 頭の上のマーカー(画面の外にいるときは、ふちに矢印)
@@ -722,13 +731,11 @@ public class MatchManager : MonoBehaviour
         }
         else if (state == State.Countdown)
         {
-            bigStyle.normal.textColor = white;
-            GUI.Label(center, Mathf.CeilToInt(countdownLeft).ToString(), bigStyle);
+            DrawCountdown(unit, meCol, white);
         }
         else if (state == State.Playing && fightTextTimer > 0f)
         {
-            bigStyle.normal.textColor = cyan;
-            GUI.Label(center, "FIGHT", bigStyle);
+            DrawFightText(unit, meCol);
         }
         else if (state == State.Result)
         {
@@ -748,63 +755,108 @@ public class MatchManager : MonoBehaviour
         Color card = new Color32(0x0D, 0x11, 0x17, 0xF2);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
         Color grey = new Color32(0x8B, 0x98, 0xA8, 0xFF);
+        float age = UiAge;
 
-        // 画面を暗くする
-        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color32(0x07, 0x09, 0x0D, 0xB4));
+        // 画面がだんだん暗くなる
+        Fill(new Rect(0, 0, Screen.width, Screen.height), A(new Color32(0x07, 0x09, 0x0D, 0xC8), EaseOut(age / 0.4f)));
 
-        // 勝敗
-        Color resultColor = resultText == "YOU WIN" ? cyan : (resultText == "YOU LOSE" ? amber : white);
-        bigStyle.normal.textColor = resultColor;
-        GUI.Label(new Rect(0, Screen.height * 0.08f, Screen.width, unit * 3f), resultText, bigStyle);
+        // 勝敗:大きく出て、ちょうどいい大きさに止まる。後ろに光
+        bool win = resultText == "YOU WIN";
+        Color resultColor = win ? cyan : (resultText == "YOU LOSE" ? amber : white);
+        float ty0 = Screen.height * 0.07f;
+        float ta = EaseOut(age / 0.25f);
+        float ts = Mathf.Lerp(1.9f, 1f, EaseBack(age / 0.4f));
+        DrawGlow(new Rect(Screen.width / 2f - unit * 9f, ty0 - unit * 1.5f, unit * 18f, unit * 6f), A(resultColor, 0.18f * ta));
+        // 横に走る線
+        float band = EaseOut((age - 0.1f) / 0.4f);
+        Fill(new Rect(Screen.width / 2f - Screen.width * 0.4f * band, ty0 + unit * 3.05f, Screen.width * 0.8f * band, 2f), A(resultColor, 0.8f));
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 2.4f * ts);
+        bigStyle.normal.textColor = A(Color.black, 0.5f * ta);
+        GUI.Label(new Rect(4, ty0 + 4, Screen.width, unit * 3f), resultText, bigStyle);
+        bigStyle.normal.textColor = A(resultColor, ta);
+        GUI.Label(new Rect(0, ty0, Screen.width, unit * 3f), resultText, bigStyle);
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 2.4f);
 
-        // 新記録(点滅)
-        if (!string.IsNullOrEmpty(recordNews))
+        // 1 つもストックを失わずに勝った:PERFECT
+        bool perfect = win && playerStocks == stockCount;
+        string news = perfect ? (string.IsNullOrEmpty(recordNews) ? "★ PERFECT ★" : "PERFECT   " + recordNews) : recordNews;
+        if (!string.IsNullOrEmpty(news) && age > 0.5f)
         {
             bool on = Mathf.FloorToInt(Time.unscaledTime * 3f) % 2 == 0;
             tinyStyle.alignment = TextAnchor.MiddleCenter;
             tinyStyle.normal.textColor = on ? amber : white;
-            GUI.Label(new Rect(0, Screen.height * 0.08f + unit * 2.55f, Screen.width, unit * 0.8f), recordNews, tinyStyle);
+            // ★ は文字ではなく本物の星で描く
+            string plain = news.Replace("★", "").Trim();
+            Rect nr = new Rect(0, ty0 + unit * 3.25f, Screen.width, unit * 0.8f);
+            GUI.Label(nr, plain, tinyStyle);
+            if (perfect)
+            {
+                float tw = tinyStyle.CalcSize(new GUIContent(plain)).x;
+                float ss = unit * 0.55f;
+                DrawStar(new Rect(Screen.width / 2f - tw / 2f - ss * 1.6f, nr.center.y - ss / 2f, ss, ss), amber, true);
+                DrawStar(new Rect(Screen.width / 2f + tw / 2f + ss * 0.6f, nr.center.y - ss / 2f, ss, ss), amber, true);
+            }
             tinyStyle.alignment = TextAnchor.MiddleLeft;
         }
 
-        // 戦績カード
+        // 戦績カード(下から出てくる)
         float w = unit * 16f, rowH = unit * 1.05f;
         string[] labels = { "DAMAGE DEALT", "KO", "PARTS BROKEN", "STOCKS LEFT" };
         int[] you = { damageTaken[1], stockCount - cpuStocks, partsLost[1], playerStocks };
         int[] them = { damageTaken[0], stockCount - playerStocks, partsLost[0], cpuStocks };
 
+        float cardIn = EaseOut((age - 0.25f) / 0.4f);
         float x = (Screen.width - w) / 2f;
-        float y = Screen.height * 0.08f + unit * 3.4f;
+        float y = Screen.height * 0.08f + unit * 4.1f + (1f - cardIn) * unit * 1.5f;
         float h = rowH * (labels.Length + 1) + unit * 1.4f;
         Rect cardRect = new Rect(x, y, w, h);
-        Fill(cardRect, card);
-        Border(cardRect, line, 1f);
-        Fill(new Rect(x, y, w, unit * 0.1f), resultColor);
+        Fill(new Rect(x + 6, y + 8, w, h), A(Color.black, 0.35f * cardIn));
+        Fill(cardRect, A(card, cardIn));
+        Border(cardRect, A(line, cardIn), 1f);
+        Fill(new Rect(x, y, w, unit * 0.1f), A(resultColor, cardIn));
 
         float colL = x + w * 0.42f, colR = x + w * 0.74f, colW = w * 0.22f;
         float ty = y + unit * 0.5f;
 
         // 見出し(YOU / CPU)
         smallStyle.alignment = TextAnchor.MiddleCenter;
-        smallStyle.normal.textColor = cyan;
+        smallStyle.normal.textColor = A(cyan, cardIn);
         GUI.Label(new Rect(colL, ty, colW, rowH), "YOU", smallStyle);
-        smallStyle.normal.textColor = amber;
+        smallStyle.normal.textColor = A(amber, cardIn);
         GUI.Label(new Rect(colR, ty, colW, rowH), IsOnlineMode ? "RIVAL" : "CPU", smallStyle);
         ty += rowH;
 
         for (int i = 0; i < labels.Length; i++)
         {
-            Fill(new Rect(x + unit * 0.6f, ty, w - unit * 1.2f, 1f), line);
+            // 1 行ずつ出てきて、数字が 0 から数え上がる
+            float rowT = (age - 0.5f - i * 0.12f) / 0.5f;
+            float rowIn = EaseOut(rowT * 2f);
+            float count = EaseOut(rowT);
+            Fill(new Rect(x + unit * 0.6f, ty, w - unit * 1.2f, 1f), A(line, rowIn));
             tinyStyle.alignment = TextAnchor.MiddleLeft;
-            tinyStyle.normal.textColor = grey;
-            GUI.Label(new Rect(x + unit * 0.8f, ty, w * 0.4f, rowH), labels[i], tinyStyle);
+            tinyStyle.normal.textColor = A(grey, rowIn);
+            GUI.Label(new Rect(x + unit * 0.8f + (1f - rowIn) * unit, ty, w * 0.4f, rowH), labels[i], tinyStyle);
 
-            // 多い方を明るく(STOCKS LEFT 以外も「多い方が良い」項目)
             bool youBetter = you[i] > them[i], themBetter = them[i] > you[i];
-            smallStyle.normal.textColor = youBetter ? white : grey;
-            GUI.Label(new Rect(colL, ty, colW, rowH), you[i].ToString(), smallStyle);
-            smallStyle.normal.textColor = themBetter ? white : grey;
-            GUI.Label(new Rect(colR, ty, colW, rowH), them[i].ToString(), smallStyle);
+            if (labels[i] == "STOCKS LEFT")
+            {
+                // 残りストックは星で
+                DrawStockStars(new Rect(colL, ty, colW, rowH), you[i], cyan, rowIn);
+                DrawStockStars(new Rect(colR, ty, colW, rowH), them[i], amber, rowIn);
+            }
+            else
+            {
+                smallStyle.normal.textColor = A(youBetter ? white : grey, rowIn);
+                GUI.Label(new Rect(colL, ty, colW, rowH), Mathf.RoundToInt(you[i] * count).ToString(), smallStyle);
+                smallStyle.normal.textColor = A(themBetter ? white : grey, rowIn);
+                GUI.Label(new Rect(colR, ty, colW, rowH), Mathf.RoundToInt(them[i] * count).ToString(), smallStyle);
+                // 勝っている方に小さな印
+                if (rowT >= 1f && (youBetter || themBetter))
+                {
+                    Rect cr = youBetter ? new Rect(colL, ty, colW, rowH) : new Rect(colR, ty, colW, rowH);
+                    Fill(new Rect(cr.center.x - unit * 0.6f, cr.yMax - unit * 0.18f, unit * 1.2f, 2f), youBetter ? cyan : amber);
+                }
+            }
             ty += rowH;
         }
         smallStyle.alignment = TextAnchor.MiddleLeft;
@@ -813,28 +865,35 @@ public class MatchManager : MonoBehaviour
         int m = Mathf.FloorToInt(fightTime / 60f), sec = Mathf.FloorToInt(fightTime % 60f);
         string level = savedDifficulty >= 0 ? difficultyNames[savedDifficulty] : "";
         tinyStyle.alignment = TextAnchor.MiddleCenter;
-        tinyStyle.normal.textColor = grey;
+        tinyStyle.normal.textColor = A(grey, cardIn);
         string info = IsOnlineMode ? "TIME  " + m + ":" + sec.ToString("00") + "      ONLINE MATCH" : "TIME  " + m + ":" + sec.ToString("00") + "      CPU  " + level;
         GUI.Label(new Rect(x, ty + unit * 0.15f, w, unit * 0.7f), info, tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
 
-        // ボタン(クリックでも、R / D / T キーでも)
+        // ボタン(クリックでも、R / D / T キーでも)。少し遅れて出る
+        float btnIn = EaseOut((age - 1.0f) / 0.3f);
+        if (btnIn <= 0f) return;
         string[] btn = IsOnlineMode
             ? new[] { IsHostOnline && !opponentLeft ? "REMATCH  [R]" : (opponentLeft ? "OPPONENT LEFT" : "WAITING FOR HOST"), "LEAVE  [T]" }
             : new[] { "REMATCH  [R]", "CHANGE LEVEL  [D]", "TITLE  [T]" };
         int nb = btn.Length;
         float bw = unit * 6.2f, bh = unit * 1.4f, gap = unit * 0.4f;
         float bx = (Screen.width - (bw * nb + gap * (nb - 1))) / 2f;
-        float by = y + h + unit * 0.8f;
+        float by = y + h + unit * 0.8f + (1f - btnIn) * unit * 0.6f;
         for (int i = 0; i < nb; i++)
         {
             Rect r = new Rect(bx + i * (bw + gap), by, bw, bh);
             bool hover = r.Contains(Event.current.mousePosition);
             bool primary = i == 0;
-            Fill(r, primary ? (hover ? white : cyan) : card);
-            if (!primary) Border(r, hover ? cyan : line, hover ? 2f : 1f);
+            if (primary)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3f);
+                DrawGlow(ScaleRect(r, 1.5f), A(cyan, (0.12f + 0.1f * pulse) * btnIn));
+            }
+            Fill(r, A(primary ? (hover ? white : cyan) : card, btnIn));
+            if (!primary) Border(r, A(hover ? cyan : line, btnIn), hover ? 2f : 1f);
             tinyStyle.alignment = TextAnchor.MiddleCenter;
-            tinyStyle.normal.textColor = primary ? (Color)new Color32(0x03, 0x14, 0x17, 0xFF) : (hover ? cyan : white);
+            tinyStyle.normal.textColor = A(primary ? (Color)new Color32(0x03, 0x14, 0x17, 0xFF) : (hover ? cyan : white), btnIn);
             GUI.Label(r, btn[i], tinyStyle);
             tinyStyle.alignment = TextAnchor.MiddleLeft;
             if (GUI.Button(r, GUIContent.none, GUIStyle.none))
@@ -848,6 +907,19 @@ public class MatchManager : MonoBehaviour
                 else if (i == 1) Reload(false);
                 else GoToTitle();
             }
+        }
+    }
+
+    // 残りストックを星で並べる
+    void DrawStockStars(Rect cell, int n, Color c, float alpha)
+    {
+        float ss = cell.height * 0.5f, sg = ss * 0.3f;
+        float total = ss * stockCount + sg * (stockCount - 1);
+        float sx = cell.center.x - total / 2f;
+        for (int s = 0; s < stockCount; s++)
+        {
+            Rect st = new Rect(sx + s * (ss + sg), cell.center.y - ss / 2f, ss, ss);
+            DrawStar(st, s < n ? A(c, alpha) : A(HudEmpty, alpha), s < n);
         }
     }
 
@@ -891,19 +963,20 @@ public class MatchManager : MonoBehaviour
     // ステージ選び(カードの中に足場の形を小さく描く)
     void DrawStageSelect(float unit, Color accent, Color white)
     {
-        Color panel = new Color32(0x07, 0x09, 0x0D, 0xE6);
         Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
         Color plat = new Color32(0x3A, 0x44, 0x52, 0xFF);
+        Color grey = new Color(0.55f, 0.6f, 0.66f);
+        // ステージごとの空の色(FACTORY 夜 / SPLIT 夕焼け / SHIFT 嵐)
+        Color[] sky = { new Color32(0x10, 0x16, 0x24, 0xFF), new Color32(0x3A, 0x1E, 0x2C, 0xFF), new Color32(0x14, 0x1A, 0x22, 0xFF) };
+        Color[] skyTop = { new Color32(0x07, 0x0A, 0x12, 0xFF), new Color32(0x1C, 0x10, 0x2A, 0xFF), new Color32(0x0A, 0x0D, 0x12, 0xFF) };
 
-        Fill(new Rect(0, 0, Screen.width, Screen.height), panel);
-
-        midStyle.normal.textColor = white;
-        GUI.Label(new Rect(0, Screen.height * 0.12f, Screen.width, unit * 1.4f), "SELECT STAGE", midStyle);
+        DrawMenuBackdrop(accent, EaseOut(UiAge / 0.3f));
+        DrawHeading("SELECT STAGE", Screen.height * 0.1f, unit, accent, white);
 
         int count = stageNames.Length;
         float gap = unit * 0.7f;
-        float w = Mathf.Min(unit * 9f, (Screen.width - unit * 2f - gap * (count - 1)) / count), h = unit * 7f;
+        float w = Mathf.Min(unit * 9f, (Screen.width - unit * 2f - gap * (count - 1)) / count), h = unit * 7.4f;
         float x0 = (Screen.width - (w * count + gap * (count - 1))) / 2f;
         float y0 = Screen.height * 0.25f;
 
@@ -917,47 +990,64 @@ public class MatchManager : MonoBehaviour
 
         for (int i = 0; i < count; i++)
         {
-            Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
-            bool hover = r.Contains(Event.current.mousePosition) || menuIndex == i;   // マウスかカーソル
-            Fill(r, card);
+            float enter = EaseOut((UiAge - 0.08f * i) / 0.35f);
+            Rect baseR = new Rect(x0 + i * (w + gap), y0 + (1f - enter) * unit * 2f, w, h);
+            bool hover = baseR.Contains(Event.current.mousePosition) || menuIndex == i;   // マウスかカーソル
+            if (Event.current.type == EventType.Repaint)
+                cardLift[i] = Mathf.MoveTowards(cardLift[i], hover ? 1f : 0f, Time.unscaledDeltaTime * 6f);
+            float lift = EaseOut(cardLift[i]);
+            Rect r = new Rect(baseR.x, baseR.y - lift * unit * 0.35f, w, h);
+
+            Fill(new Rect(r.x + 6, r.y + 8, w, h), A(Color.black, 0.35f * enter));
+            if (lift > 0.01f) DrawGlow(ScaleRect(r, 1.4f), A(accent, 0.1f * lift));
+            Fill(r, A(card, enter));
+            Fill(new Rect(r.x, r.y, w, unit * 0.12f), A(hover ? accent : line, enter));
             Border(r, hover ? accent : line, hover ? 2f : 1f);
 
-            // 小さい地図
-            Rect map = new Rect(r.x + unit * 0.5f, r.y + unit * 0.5f, r.width - unit, h * 0.55f);
-            Fill(map, new Color32(0x10, 0x16, 0x1E, 0xFF));
+            // 小さい地図(空のグラデーション + 足場)
+            Rect map = new Rect(r.x + unit * 0.5f, r.y + unit * 0.55f, r.width - unit, h * 0.55f);
+            int bands = 12;
+            for (int bnd = 0; bnd < bands; bnd++)
+                Fill(new Rect(map.x, map.y + map.height * bnd / bands, map.width, map.height / bands + 1f),
+                     A(Color.Lerp(skyTop[i], sky[i], (float)bnd / (bands - 1)), enter));
+            if (i == 1)   // 夕焼けの太陽
+                DrawGlow(new Rect(map.x + map.width * 0.62f, map.y + map.height * 0.25f, map.height * 0.6f, map.height * 0.6f), A(new Color32(0xFF, 0x9A, 0x4A, 0xFF), 0.7f * enter));
+            if (i == 2 && Mathf.Repeat(Time.unscaledTime, 3.2f) < 0.08f)   // 嵐の稲光
+                Fill(map, A(Color.white, 0.25f));
+
             float sx = map.width / 22f, sy = map.height / 9f;
-            foreach (float[] p in layouts[i])
+            float t = Time.unscaledTime;
+            for (int p = 0; p < layouts[i].Length; p++)
             {
-                float px = map.x + (p[0] - p[2] / 2f + 11f) * sx;
-                float py = map.y + (7.5f - p[1]) * sy;
-                float ph = p[2] >= 7f ? sy * 0.9f : Mathf.Max(3f, sy * 0.3f);
-                Fill(new Rect(px, py, p[2] * sx, ph), plat);
+                float[] pl = layouts[i][p];
+                float ox = 0f, oy = 0f;
+                // SHIFT:動く足場は、地図の中でも動く
+                if (i == 2 && p == 1) ox = Mathf.Sin(t / 5f * Mathf.PI * 2f) * 2.2f;
+                if (i == 2 && p == 2) ox = Mathf.Sin((t / 5f + 0.5f) * Mathf.PI * 2f) * 2.2f;
+                if (i == 2 && p == 3) oy = Mathf.Sin((t / 4f + 0.25f) * Mathf.PI * 2f) * 1.4f;
+                float px = map.x + (pl[0] + ox - pl[2] / 2f + 11f) * sx;
+                float py = map.y + (7.5f - pl[1] - oy) * sy;
+                float ph = pl[2] >= 7f ? sy * 0.9f : Mathf.Max(3f, sy * 0.3f);
+                Fill(new Rect(px, py, pl[2] * sx, ph), A(plat, enter));
+                Fill(new Rect(px, py, pl[2] * sx, 1f), A(hover ? accent : grey, 0.5f * enter));
             }
+            Border(map, A(line, enter), 1f);
 
-            // SHIFT:動く足場の向きを矢印で
-            if (i == 2)
-            {
-                Color arrow = accent;
-                float ay = map.y + (7.5f - 2f) * sy - sy * 0.6f;
-                MiniArrow(new Vector2(map.x + (-8.5f + 11f) * sx, ay), true, sx * 2f, arrow);
-                MiniArrow(new Vector2(map.x + (8.5f + 11f) * sx, ay), true, sx * 2f, arrow);
-                MiniArrow(new Vector2(map.x + 11f * sx + sx * 2f, map.y + (7.5f - 3.2f) * sy), false, sy * 1.2f, arrow);
-            }
-
-            midStyle.normal.textColor = hover ? accent : white;
-            GUI.Label(new Rect(r.x, map.yMax + unit * 0.3f, w, unit * 1.1f), (i + 1) + "  " + stageNames[i], midStyle);
+            midStyle.normal.textColor = A(hover ? accent : white, enter);
+            GUI.Label(new Rect(r.x, map.yMax + unit * 0.35f, w, unit * 1.1f), (i + 1) + "  " + stageNames[i], midStyle);
 
             tinyStyle.alignment = TextAnchor.MiddleCenter;
-            tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
-            GUI.Label(new Rect(r.x, map.yMax + unit * 1.4f, w, unit * 0.6f), stageNotes[i], tinyStyle);
+            tinyStyle.normal.textColor = A(grey, enter);
+            GUI.Label(new Rect(r.x, map.yMax + unit * 1.45f, w, unit * 0.6f), stageNotes[i], tinyStyle);
             tinyStyle.alignment = TextAnchor.MiddleLeft;
 
             if (GUI.Button(r, GUIContent.none, GUIStyle.none)) ChooseStage(i);
         }
 
         tinyStyle.alignment = TextAnchor.MiddleCenter;
-        tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
-        GUI.Label(new Rect(0, y0 + h + unit * 0.7f, Screen.width, unit), "Click a card or press 1 / 2 / 3      BACKSPACE : change level", tinyStyle);
+        tinyStyle.normal.textColor = grey;
+        string hint = IsOnlineMode ? "←  →  to choose      ENTER / A  to start" : "←  →  to choose      ENTER / A  to start      BACKSPACE / B  change level";
+        GUI.Label(new Rect(0, y0 + h + unit * 0.9f, Screen.width, unit), hint, tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
@@ -987,39 +1077,109 @@ public class MatchManager : MonoBehaviour
         }
     }
 
+    // ===== カウントダウン(数字が大きく出て、縮みながら止まる + 輪が広がる) =====
+    void DrawCountdown(float unit, Color accent, Color white)
+    {
+        int n = Mathf.Max(1, Mathf.CeilToInt(countdownLeft));
+        float u = 1f - (countdownLeft - (n - 1));   // その数字が出てからの進み 0 → 1
+        float cy = Screen.height * 0.38f;
+        Rect box = new Rect(0, cy - unit * 2f, Screen.width, unit * 4f);
+
+        // 輪
+        float rs = unit * (4f + u * 5f);
+        DrawRing(new Rect(Screen.width / 2f - rs / 2f, cy - rs / 2f, rs, rs), A(accent, 0.6f * (1f - u)));
+        DrawGlow(new Rect(Screen.width / 2f - unit * 4f, cy - unit * 4f, unit * 8f, unit * 8f), A(accent, 0.15f));
+
+        // 数字
+        float s = Mathf.Lerp(1.8f, 1f, EaseOut(u / 0.35f));
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 3.2f * s);
+        bigStyle.normal.textColor = A(Color.black, 0.5f);
+        GUI.Label(new Rect(box.x + 4, box.y + 4, box.width, box.height), n.ToString(), bigStyle);
+        bigStyle.normal.textColor = A(white, Mathf.Clamp01(u * 4f));
+        GUI.Label(box, n.ToString(), bigStyle);
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 2.4f);
+
+        tinyStyle.alignment = TextAnchor.MiddleCenter;
+        tinyStyle.normal.textColor = A(accent, 0.8f);
+        GUI.Label(new Rect(0, cy + unit * 2.4f, Screen.width, unit), "GET READY", tinyStyle);
+        tinyStyle.alignment = TextAnchor.MiddleLeft;
+    }
+
+    // ===== FIGHT!(ズームで出て、横に光の帯が走る) =====
+    void DrawFightText(float unit, Color accent)
+    {
+        float age = 0.8f - fightTextTimer;          // 0 → 0.8
+        float cy = Screen.height * 0.38f;
+        if (age < 0.12f) Fill(new Rect(0, 0, Screen.width, Screen.height), A(Color.white, 0.35f * (1f - age / 0.12f)));
+
+        float band = EaseOut(age / 0.25f);
+        float fade = Mathf.Clamp01((0.8f - age) / 0.25f);
+        Fill(new Rect(0, cy - unit * 1.6f, Screen.width * band, 2f), A(accent, fade));
+        Fill(new Rect(Screen.width * (1f - band), cy + unit * 1.6f, Screen.width * band, 2f), A(accent, fade));
+        Fill(new Rect(0, cy - unit * 1.5f, Screen.width, unit * 3f), A(Color.black, 0.35f * fade * band));
+
+        float s = Mathf.Lerp(2.4f, 1f, EaseBack(age / 0.3f));
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 2.8f * s);
+        bigStyle.normal.textColor = A(accent, fade);
+        GUI.Label(new Rect(0, cy - unit * 2f, Screen.width, unit * 4f), "FIGHT!", bigStyle);
+        bigStyle.fontSize = Mathf.RoundToInt(unit * 2.4f);
+    }
+
+    // ===== 強さ選び(星の数で強さが分かるカード) =====
     void DrawDifficultySelect(float unit, Color accent, Color white)
     {
-        Color panel = new Color32(0x07, 0x09, 0x0D, 0xD8);
         Color card = new Color32(0x0D, 0x11, 0x17, 0xFF);
         Color line = new Color32(0x1E, 0x27, 0x33, 0xFF);
+        Color grey = new Color(0.55f, 0.6f, 0.66f);
 
-        // 画面全体を少し暗くする
-        Fill(new Rect(0, 0, Screen.width, Screen.height), panel);
+        DrawMenuBackdrop(accent, EaseOut(UiAge / 0.3f));
+        DrawHeading("SELECT CPU LEVEL", Screen.height * 0.16f, unit, accent, white);
 
-        midStyle.normal.textColor = white;
-        GUI.Label(new Rect(0, Screen.height * 0.18f, Screen.width, unit * 1.4f), "SELECT CPU LEVEL", midStyle);
-
-        float w = unit * 6f, h = unit * 2.4f, gap = unit * 0.6f;
+        float w = unit * 6.4f, h = unit * 4.4f, gap = unit * 0.7f;
         float total = w * 3 + gap * 2;
         float x0 = (Screen.width - total) / 2f;
-        float y0 = Screen.height * 0.38f;
+        float y0 = Screen.height * 0.34f;
 
-        string[] notes = { "Slow and careless", "A fair fight", "Fast and accurate" };
+        string[] notes = { "Slow and careless", "A fair fight", "Fast and ruthless" };
+        Color[] tint = { new Color32(0x6E, 0xE7, 0xA0, 0xFF), accent, new Color32(0xFF, 0x5A, 0x5A, 0xFF) };
 
         for (int i = 0; i < 3; i++)
         {
-            Rect r = new Rect(x0 + i * (w + gap), y0, w, h);
-            bool hover = r.Contains(Event.current.mousePosition) || menuIndex == i;   // マウスかカーソル
+            // 1 枚ずつ下から出てくる
+            float enter = EaseOut((UiAge - 0.08f * i) / 0.35f);
+            Rect baseR = new Rect(x0 + i * (w + gap), y0 + (1f - enter) * unit * 2f, w, h);
+            bool hover = baseR.Contains(Event.current.mousePosition) || menuIndex == i;
+            if (Event.current.type == EventType.Repaint)
+                cardLift[i] = Mathf.MoveTowards(cardLift[i], hover ? 1f : 0f, Time.unscaledDeltaTime * 6f);
+            float lift = EaseOut(cardLift[i]);
+            Rect r = new Rect(baseR.x, baseR.y - lift * unit * 0.35f, w, h);
+            Color c = tint[i];
 
-            Fill(r, card);
-            Border(r, hover ? accent : line, hover ? 2f : 1f);
+            // 影 → カード → 上の帯
+            Fill(new Rect(r.x + 6, r.y + 8, w, h), A(Color.black, 0.35f * enter));
+            if (lift > 0.01f) DrawGlow(ScaleRect(r, 1.5f), A(c, 0.12f * lift));
+            Fill(r, A(card, enter));
+            Fill(new Rect(r.x, r.y, w, unit * 0.12f), A(c, enter));
+            Border(r, hover ? c : line, hover ? 2f : 1f);
 
-            midStyle.normal.textColor = hover ? accent : white;
-            GUI.Label(new Rect(r.x, r.y + h * 0.12f, w, h * 0.45f), (i + 1) + "  " + difficultyNames[i], midStyle);
+            // 星(1 / 2 / 3 個)
+            float ss = unit * 0.9f, sg = unit * 0.25f;
+            float sw = ss * 3 + sg * 2, sx0 = r.x + (w - sw) / 2f;
+            for (int s = 0; s < 3; s++)
+            {
+                Rect st = new Rect(sx0 + s * (ss + sg), r.y + h * 0.17f, ss, ss);
+                bool on = s <= i;
+                if (on && hover) DrawGlow(ScaleRect(st, 2.2f), A(c, 0.25f));
+                float pop = on && hover ? 1f + 0.08f * Mathf.Sin(Time.unscaledTime * 6f + s) : 1f;
+                DrawStar(ScaleRect(st, pop), on ? A(c, enter) : A(line, enter), on);
+            }
+
+            midStyle.normal.textColor = A(hover ? c : white, enter);
+            GUI.Label(new Rect(r.x, r.y + h * 0.44f, w, h * 0.25f), (i + 1) + "  " + difficultyNames[i], midStyle);
 
             tinyStyle.alignment = TextAnchor.MiddleCenter;
-            tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
-            GUI.Label(new Rect(r.x, r.y + h * 0.58f, w, h * 0.3f), notes[i], tinyStyle);
+            tinyStyle.normal.textColor = A(grey, enter);
+            GUI.Label(new Rect(r.x, r.y + h * 0.7f, w, h * 0.2f), notes[i], tinyStyle);
             tinyStyle.alignment = TextAnchor.MiddleLeft;
 
             // クリックでも選べる
@@ -1027,8 +1187,8 @@ public class MatchManager : MonoBehaviour
         }
 
         tinyStyle.alignment = TextAnchor.MiddleCenter;
-        tinyStyle.normal.textColor = new Color(0.55f, 0.6f, 0.66f);
-        GUI.Label(new Rect(0, y0 + h + unit * 0.8f, Screen.width, unit), "Click a card or press 1 / 2 / 3", tinyStyle);
+        tinyStyle.normal.textColor = grey;
+        GUI.Label(new Rect(0, y0 + h + unit * 1.0f, Screen.width, unit), "←  →  to choose      ENTER / A  to start      1 / 2 / 3", tinyStyle);
         tinyStyle.alignment = TextAnchor.MiddleLeft;
     }
 
@@ -1062,24 +1222,51 @@ public class MatchManager : MonoBehaviour
     static readonly Color HudRed = new Color32(0xFF, 0x5A, 0x5A, 0xFF);
     static readonly Color HudWhite = new Color32(0xE6, 0xED, 0xF3, 0xFF);
 
-    // 上の真ん中のタイマー
+
+    // 上の真ん中のタイマー(残り 30 秒でオレンジ、10 秒で赤く脈打つ)
     void DrawTimer(float k, Color amber, Color white)
     {
         EnsureHudStyles();
         int m = Mathf.FloorToInt(timeLeft / 60f);
         int sec = Mathf.FloorToInt(timeLeft % 60f);
-        Rect r = new Rect(Screen.width / 2f - 60 * k, 18 * k, 120 * k, 40 * k);
+        bool playing = state == State.Playing;
+        bool last10 = playing && timeLeft <= 10f && timeLeft > 0f;
+        float beat = last10 ? 1f - (timeLeft % 1f) : 0f;          // 1 秒ごとに 1 → 0
+        float s = last10 ? 1f + 0.18f * Mathf.Pow(1f - beat, 6f) : 1f;
+
+        Rect r = ScaleRect(new Rect(Screen.width / 2f - 64 * k, 16 * k, 128 * k, 42 * k), s);
+        if (last10) DrawGlow(ScaleRect(r, 2.2f), A(HudRed, 0.35f * (1f - beat)));
         Fill(r, HudPanel);
-        Border(r, HudLine, 1f);
-        hudMono.fontSize = Mathf.RoundToInt(22 * k);
+        Border(r, last10 ? HudRed : HudLine, last10 ? 2f : 1f);
+        // 下の細い線:試合の残り時間
+        float total = Mathf.Max(1f, matchTime);
+        Fill(new Rect(r.x, r.yMax - 2f, r.width * Mathf.Clamp01(timeLeft / total), 2f), last10 ? HudRed : (playing && timeLeft <= 30f ? amber : A(white, 0.35f)));
+
+        hudMono.fontSize = Mathf.RoundToInt(22 * k * s);
         hudMono.alignment = TextAnchor.MiddleCenter;
-        hudMono.normal.textColor = (state == State.Playing && timeLeft <= 30f) ? amber : white;
+        hudMono.normal.textColor = last10 ? HudRed : (playing && timeLeft <= 30f ? amber : white);
         GUI.Label(r, m + ":" + sec.ToString("00"), hudMono);
         hudMono.alignment = TextAnchor.MiddleLeft;
     }
 
-    // 下の左右のパネル(名前・ストック・HP・武器と熱・部位)
-    void DrawHudPanel(bool rightSide, float k, string badge, string name, string sub,
+    // HP の表示用の値をなめらかに動かす(当たると白い「削れた分」が少し残ってから減る)
+    void UpdateHpAnim(int side, int hp, int maxHp)
+    {
+        float dt = Time.unscaledDeltaTime;
+        if (uiHpShown[side] < 0f) { uiHpShown[side] = hp; uiHpTrail[side] = hp; uiPrevHp[side] = hp; }
+        if (hp < uiPrevHp[side])
+        {
+            uiHitAt[side] = Time.unscaledTime;
+            uiTrailHold[side] = Time.unscaledTime + 0.45f;
+        }
+        uiPrevHp[side] = hp;
+        uiHpShown[side] = Mathf.MoveTowards(uiHpShown[side], hp, maxHp * 4f * dt);
+        if (hp > uiHpTrail[side]) uiHpTrail[side] = hp;   // 回復はすぐ
+        else if (Time.unscaledTime > uiTrailHold[side]) uiHpTrail[side] = Mathf.MoveTowards(uiHpTrail[side], hp, maxHp * 0.9f * dt);
+    }
+
+    // 下の左右のパネル(名前・ストック★・HP・武器と熱・部位)
+    void DrawHudPanel(int side, bool rightSide, float k, string badge, string name, string sub,
                       int stocks, HealthSystem fighter, bool waiting, WeaponSystem weapon,
                       Color accent, Color badgeText)
     {
@@ -1087,14 +1274,30 @@ public class MatchManager : MonoBehaviour
 
         int n = weapon != null ? weapon.WeaponCount : 0;
         int rows = Mathf.Max(1, Mathf.CeilToInt(n / 3f));
-        float W = 420f, H = 62f + rows * 44f - 6f;     // 武器3つで1段、6つで2段
+        float W = 420f, H = 66f + rows * 44f - 6f;     // 武器3つで1段、6つで2段
         float x0 = rightSide ? Screen.width / k - W - 20f : 20f;
         float y0 = Screen.height / k - H - 14f;
 
-        // パネル
+        int hp = (fighter != null && !waiting) ? fighter.currentHealth : 0;
+        int maxHp = fighter != null ? Mathf.Max(1, fighter.maxHealth) : 100;
+        UpdateHpAnim(side, hp, maxHp);
+
+        // 当たった直後はパネルが少しゆれる
+        float hitAge = Time.unscaledTime - uiHitAt[side];
+        if (hitAge < 0.25f)
+        {
+            float amt = 4f * (1f - hitAge / 0.25f);
+            x0 += Random.Range(-amt, amt);
+            y0 += Random.Range(-amt, amt) * 0.5f;
+        }
+
+        // パネル(内側のはしに色の帯、上に色の線)
         Rect panel = R(k, x0, y0, W, H);
         Fill(panel, HudPanel);
         Border(panel, HudLine, 1f);
+        Fill(R(k, rightSide ? x0 + W - 3 : x0, y0, 3, H), accent);
+        Fill(R(k, x0, y0, W, 1), A(accent, 0.45f));
+        if (hitAge < 0.15f) Fill(panel, A(HudRed, 0.18f * (1f - hitAge / 0.15f)));   // 当たった瞬間、赤く光る
 
         // バッジ(P1 / P2)
         Rect b = R(k, x0 + 14, y0 + 12, 30, 22);
@@ -1110,42 +1313,70 @@ public class MatchManager : MonoBehaviour
         hudName.normal.textColor = HudWhite;
         Rect nr = R(k, x0 + 54, y0 + 12, 100, 22);
         GUI.Label(nr, name, hudName);
+        float nameW = hudName.CalcSize(new GUIContent(name)).x / k;
         if (sub.Length > 0)
         {
-            float nw = hudName.CalcSize(new GUIContent(name)).x / k;
             hudMono.fontSize = Mathf.RoundToInt(10 * k);
             hudMono.normal.textColor = HudLabel;
-            GUI.Label(R(k, x0 + 54 + nw + 8, y0 + 13, 70, 22), sub, hudMono);
+            GUI.Label(R(k, x0 + 54 + nameW + 8, y0 + 13, 70, 22), sub, hudMono);
         }
 
-        // ストック(四角)
+        // ストック(本物の星)。減った瞬間は、白く光りながら大きくなって消える
+        if (uiPrevStocks[side] >= 0 && stocks < uiPrevStocks[side])
+        {
+            uiStockLostAt[side] = Time.unscaledTime;
+            uiStockLostIdx[side] = stocks;
+        }
+        uiPrevStocks[side] = stocks;
+        float lostAge = Time.unscaledTime - uiStockLostAt[side];
         for (int i = 0; i < stockCount; i++)
         {
-            Rect sq = R(k, x0 + 178 + i * 16, y0 + 18, 10, 10);
-            if (i < stocks) Fill(sq, accent);
-            else Border(sq, HudEmpty, 1f);
+            Rect st = R(k, x0 + 172 + i * 20, y0 + 13, 16, 16);
+            if (i < stocks)
+            {
+                // 最後の1つは、ドキドキ脈打つ
+                float pulse = stocks == 1 ? 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f) : 1f;
+                DrawGlow(ScaleRect(st, 2f), A(accent, 0.18f * pulse));
+                DrawStar(st, A(accent, pulse), true);
+            }
+            else
+            {
+                DrawStar(st, HudEmpty, false);
+                if (i == uiStockLostIdx[side] && lostAge < 0.6f)
+                {
+                    float u = lostAge / 0.6f;
+                    DrawStar(ScaleRect(st, 1f + u * 1.4f), A(Color.white, 1f - u), true);
+                    DrawGlow(ScaleRect(st, 2f + u * 3f), A(accent, 0.5f * (1f - u)));
+                }
+            }
         }
 
-        // HP
-        int hp = (fighter != null && !waiting) ? fighter.currentHealth : 0;
-        int maxHp = fighter != null ? Mathf.Max(1, fighter.maxHealth) : 100;
+        // HP の数字(当たった直後は少しゆれて赤く)
         bool low = hp <= maxHp * 0.3f;
         hudMono.fontSize = Mathf.RoundToInt(11 * k);
         hudMono.normal.textColor = HudLabel;
         hudMono.alignment = TextAnchor.MiddleRight;
         GUI.Label(R(k, x0 + W - 110, y0 + 12, 48, 24), "HP", hudMono);
         hudMono.alignment = TextAnchor.MiddleLeft;
-        hudNum.fontSize = Mathf.RoundToInt(26 * k);
-        hudNum.normal.textColor = low ? HudHot : HudWhite;
-        GUI.Label(R(k, x0 + W - 100, y0 + 6, 86, 34), hp.ToString(), hudNum);
+        hudNum.fontSize = Mathf.RoundToInt((26 + (hitAge < 0.2f ? 4f * (1f - hitAge / 0.2f) : 0f)) * k);
+        hudNum.normal.textColor = hitAge < 0.12f ? HudRed : (low ? HudHot : HudWhite);
+        GUI.Label(R(k, x0 + W - 100, y0 + 6, 86, 34), Mathf.RoundToInt(uiHpShown[side]).ToString(), hudNum);
 
-        Fill(R(k, x0 + 14, y0 + 42, W - 28, 4), HudLine);
-        Fill(R(k, x0 + 14, y0 + 42, (W - 28) * Mathf.Clamp01((float)hp / maxHp), 4), low ? HudHot : accent);
+        // HP バー:背景 → 削れた分(白) → 今の HP。10% ごとに目盛り。ピンチのときは脈打つ
+        float bx = x0 + 14, by = y0 + 42, bw = W - 28, bh = 7;
+        Fill(R(k, bx, by, bw, bh), HudLine);
+        float trailR = Mathf.Clamp01(uiHpTrail[side] / maxHp), shownR = Mathf.Clamp01(uiHpShown[side] / maxHp);
+        Fill(R(k, bx, by, bw * trailR, bh), A(Color.white, 0.75f));
+        Color barCol = low ? Color.Lerp(HudHot, HudRed, 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 10f)) : accent;
+        Fill(R(k, bx, by, bw * shownR, bh), barCol);
+        Fill(R(k, bx, by, bw * shownR, 2), A(Color.white, 0.25f));   // 上のつや
+        for (int t = 1; t < 10; t++) Fill(R(k, bx + bw * t / 10f, by, 1, bh), A(HudPanel, 0.8f));
+        if (low && hp > 0) DrawGlow(R(k, bx - 10, by - 14, bw * shownR + 20, bh + 28), A(HudRed, 0.12f));
 
         // 武器スロット(3つずつ並べる)
         for (int i = 0; i < n; i++)
         {
-            float sx = x0 + 14 + (i % 3) * 112, sy = y0 + 54 + (i / 3) * 44;
+            float sx = x0 + 14 + (i % 3) * 112, sy = y0 + 58 + (i / 3) * 44;
             DrawWeaponSlot(k, weapon, i, sx, sy, 104, 38, accent);
         }
 
@@ -1157,11 +1388,12 @@ public class MatchManager : MonoBehaviour
             float px = x0 + 352;
             for (int i = 0; i < 3; i++)
             {
-                float py = y0 + 60 + i * 12;
+                float py = y0 + 64 + i * 12;
                 float ratio = waiting ? 1f : Mathf.Clamp01(ratios[i]);
                 bool broken = ratio <= 0f;
+                bool blinkOn = Mathf.FloorToInt(Time.unscaledTime * 4f) % 2 == 0;
                 hudMono.fontSize = Mathf.RoundToInt(9 * k);
-                hudMono.normal.textColor = broken ? HudRed : HudLabel;
+                hudMono.normal.textColor = broken ? (blinkOn ? HudRed : HudLabel) : HudLabel;
                 GUI.Label(R(k, px, py - 4, 12, 12), labels[i], hudMono);
                 Rect bar = R(k, px + 12, py, 42, 4);
                 Fill(bar, HudLine);
@@ -1182,7 +1414,19 @@ public class MatchManager : MonoBehaviour
 
         Rect r = R(k, sx, sy, sw, sh);
         Fill(r, HudSlot);
-        Border(r, current && !switching ? accent : HudLine, 1f);
+        // 持っている武器:ふんわり光る
+        if (current && !switching)
+        {
+            float glow = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
+            Fill(r, A(accent, 0.07f + 0.05f * glow));
+            Border(r, accent, 1f);
+            Fill(R(k, sx, sy, 3, sh), accent);
+        }
+        else Border(r, HudLine, 1f);
+        // オーバーヒート中:赤く点滅
+        if (locked && Mathf.FloorToInt(Time.unscaledTime * 3f) % 2 == 0) Fill(r, A(HudRed, 0.12f));
+        // 熱い(70 以上):オレンジの縁
+        if (!locked && heat >= 70f) Border(r, A(HudHot, 0.6f), 1f);
 
         // 持ち替え中:下に進み具合のバー
         if (switching) Fill(R(k, sx, sy + sh - 2, sw * weapon.SwitchProgress, 2), accent);
@@ -1193,7 +1437,7 @@ public class MatchManager : MonoBehaviour
 
         // 名前
         hudMono.fontSize = Mathf.RoundToInt(9.5f * k);
-        hudMono.normal.textColor = locked ? HudRed : HudWhite;
+        hudMono.normal.textColor = locked ? HudRed : (current ? HudWhite : HudGrey);
         string label = locked ? "OVERHEAT " + Mathf.CeilToInt(weapon.GetLockRemaining(i)) : (i + 1) + " " + wn;
         GUI.Label(R(k, sx + 42, sy + 4, sw - 44, 16), label, hudMono);
 
@@ -1205,6 +1449,8 @@ public class MatchManager : MonoBehaviour
         Color hc = locked ? HudRed : (heat >= 70f ? HudHot : accent);
         Fill(R(k, sx + 42, sy + 25, (sw - 50) * ratio, 4), hc);
     }
+
+
 
     // 武器ごとのアイコン(64x32 の線を半分の大きさで描く)
     void DrawWeaponIcon(float k, string weaponName, float x, float y, Color c)
@@ -1361,15 +1607,10 @@ public class MatchManager : MonoBehaviour
     {
         // 2人のロボットを探す(自分 = player / 相手 = cpu)
         if (!fightersFound) FindOnlineFighters();
-        if (net == null || !net.IsSpawned) return;
-        if (fightersFound && (player == null || cpu == null) && state != State.Result && !opponentLeft)
-        {
-            Debug.LogWarning("[Online] ロボットが消えた  自分=" + (player == null ? "なし" : "あり") + "  相手=" + (cpu == null ? "なし" : "あり"));
-            opponentLeft = true;   // 相手が抜けた
-        }
 
-        // ポーズ(自分の画面だけ。試合は止まらない)
-        if (state == State.Countdown || state == State.Playing)
+        // ポーズ = 抜けるメニュー(自分の画面だけ。試合は止まらない)
+        // 待っている間・ステージ選びの間も開けるので、2P もいつでも抜けられる
+        if (state != State.Result)
         {
             if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.JoystickButton7))
             {
@@ -1381,6 +1622,23 @@ public class MatchManager : MonoBehaviour
                 else if (Input.GetKeyDown(KeyCode.T) || Input.GetKeyDown(KeyCode.JoystickButton1)) GoToTitle();
             }
         }
+        else if (Input.GetKeyDown(KeyCode.T) || Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.JoystickButton1))
+        {
+            GoToTitle();   // 結果画面からも抜けられる(通信が切れたあとも)
+            return;
+        }
+
+        // 相手が抜けた / 通信が切れた(ホストが抜けると、2P 側はここに来る)
+        var nmNow = NetworkManager.Singleton;
+        bool disconnected = nmNow == null || !nmNow.IsListening || net == null || !net.IsSpawned;
+        bool robotGone = fightersFound && (player == null || cpu == null);
+        if ((robotGone || (disconnected && (fightersFound || appliedStage >= 0))) && state != State.Result && !opponentLeft)
+        {
+            opponentLeft = true;
+            OnlineStateChanged(State.Result);
+            return;
+        }
+        if (disconnected) return;
 
         // ホストが決めたステージを、自分の画面にも出す
         if (net.Stage >= 0 && net.Stage != appliedStage)
@@ -1665,6 +1923,154 @@ public class MatchManager : MonoBehaviour
         HitEffect.Burst(burstPos, c);
         SoundManager.Play("ko");
         lastHp[mine ? 0 : 1] = -1;   // 場外 KO の分はダメージに数えない
+    }
+
+    // =====================================================================
+    // UI の演出(星・動き・アニメーション)
+    // =====================================================================
+    private static Texture2D starTex, starLineTex, ringTex, glowTex;
+
+    // 本物の星の形(5つのとがり)をプログラムで描く。outline = true なら枠だけ
+    static Texture2D MakeStarTexture(bool outline)
+    {
+        const int N = 64;
+        Texture2D t = new Texture2D(N, N, TextureFormat.RGBA32, false);
+        t.wrapMode = TextureWrapMode.Clamp;
+        Vector2[] outer = StarPoly(N / 2f, N / 2f, N * 0.48f);
+        Vector2[] inner = StarPoly(N / 2f, N / 2f, N * 0.30f);
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                // 4x4 に細かく調べて、ふちをなめらかにする
+                int hit = 0;
+                for (int sy = 0; sy < 4; sy++)
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        Vector2 p = new Vector2(x + (sx + 0.5f) / 4f, y + (sy + 0.5f) / 4f);
+                        bool inO = InPoly(p, outer);
+                        bool ok = outline ? inO && !InPoly(p, inner) : inO;
+                        if (ok) hit++;
+                    }
+                t.SetPixel(x, y, new Color(1, 1, 1, hit / 16f));
+            }
+        t.Apply();
+        return t;
+    }
+
+    static Vector2[] StarPoly(float cx, float cy, float r)
+    {
+        var pts = new Vector2[10];
+        for (int i = 0; i < 10; i++)
+        {
+            float a = (90f + i * 36f) * Mathf.Deg2Rad;
+            float rr = i % 2 == 0 ? r : r * 0.42f;
+            pts[i] = new Vector2(cx + Mathf.Cos(a) * rr, cy + Mathf.Sin(a) * rr);
+        }
+        return pts;
+    }
+
+    static bool InPoly(Vector2 p, Vector2[] poly)
+    {
+        bool c = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        {
+            if (((poly[i].y > p.y) != (poly[j].y > p.y)) &&
+                (p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)) c = !c;
+        }
+        return c;
+    }
+
+    // 丸い輪(カウントダウンの数字のまわり)と、ふんわりした光
+    static Texture2D MakeRoundTexture(bool ring)
+    {
+        const int N = 128;
+        Texture2D t = new Texture2D(N, N, TextureFormat.RGBA32, false);
+        t.wrapMode = TextureWrapMode.Clamp;
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(N / 2f, N / 2f)) / (N / 2f);
+                float a = ring ? Mathf.Clamp01(1f - Mathf.Abs(d - 0.9f) * 22f) : Mathf.Clamp01(1f - d) * Mathf.Clamp01(1f - d);
+                t.SetPixel(x, y, new Color(1, 1, 1, a));
+            }
+        t.Apply();
+        return t;
+    }
+
+    void DrawTex(Rect r, Texture2D t, Color c)
+    {
+        Color prev = GUI.color;
+        GUI.color = c;
+        GUI.DrawTexture(r, t);
+        GUI.color = prev;
+    }
+
+    void DrawStar(Rect r, Color c, bool filled)
+    {
+        if (starTex == null) { starTex = MakeStarTexture(false); starLineTex = MakeStarTexture(true); }
+        DrawTex(r, filled ? starTex : starLineTex, c);
+    }
+
+    void DrawRing(Rect r, Color c)
+    {
+        if (ringTex == null) ringTex = MakeRoundTexture(true);
+        DrawTex(r, ringTex, c);
+    }
+
+    void DrawGlow(Rect r, Color c)
+    {
+        if (glowTex == null) glowTex = MakeRoundTexture(false);
+        DrawTex(r, glowTex, c);
+    }
+
+    static Rect ScaleRect(Rect r, float s)
+    {
+        return new Rect(r.center.x - r.width * s / 2f, r.center.y - r.height * s / 2f, r.width * s, r.height * s);
+    }
+
+    static float EaseOut(float t) { t = Mathf.Clamp01(t); return 1f - (1f - t) * (1f - t) * (1f - t); }
+    static float EaseBack(float t) { t = Mathf.Clamp01(t); float c1 = 1.70158f, c3 = c1 + 1f; return 1f + c3 * Mathf.Pow(t - 1f, 3f) + c1 * Mathf.Pow(t - 1f, 2f); }
+    static Color A(Color c, float a) => new Color(c.r, c.g, c.b, c.a * a);
+
+    // 画面が切り替わった時刻(入ってくるアニメーションに使う)
+    private State uiState = (State)(-1);
+    private float uiStateTime;
+    float UiAge => Time.unscaledTime - uiStateTime;
+
+    // 左右のパネルの動き [0] = 左(自分) / [1] = 右
+    private readonly int[] uiPrevStocks = { -1, -1 };
+    private readonly float[] uiStockLostAt = { -10f, -10f };
+    private readonly int[] uiStockLostIdx = { 0, 0 };
+    private readonly float[] uiHpShown = { -1f, -1f };
+    private readonly float[] uiHpTrail = { -1f, -1f };
+    private readonly float[] uiTrailHold = { 0f, 0f };
+    private readonly float[] uiHitAt = { -10f, -10f };
+    private readonly int[] uiPrevHp = { -1, -1 };
+
+    // カードの浮き上がり(マウスを乗せると少し上がる)
+    private readonly float[] cardLift = new float[4];
+
+    // 選ぶ画面の背景:ゆっくり流れる横線
+    void DrawMenuBackdrop(Color accent, float alpha)
+    {
+        Fill(new Rect(0, 0, Screen.width, Screen.height), new Color(0.027f, 0.035f, 0.05f, 0.9f * alpha));
+        float gap = Screen.height / 36f;
+        float off = (Time.unscaledTime * 18f) % gap;
+        for (float y = -gap + off; y < Screen.height; y += gap)
+            Fill(new Rect(0, y, Screen.width, 1f), A(accent, 0.035f * alpha));
+        // 上下のふちの光
+        Fill(new Rect(0, 0, Screen.width, 2f), A(accent, 0.6f * alpha));
+        Fill(new Rect(0, Screen.height - 2f, Screen.width, 2f), A(accent, 0.6f * alpha));
+    }
+
+    // 見出し(真ん中から広がる下線つき)
+    void DrawHeading(string text, float y, float unit, Color accent, Color white)
+    {
+        float a = EaseOut(UiAge / 0.35f);
+        midStyle.normal.textColor = A(white, a);
+        GUI.Label(new Rect(0, y - (1f - a) * unit * 0.6f, Screen.width, unit * 1.4f), text, midStyle);
+        float lw = unit * 6f * EaseOut((UiAge - 0.1f) / 0.4f);
+        Fill(new Rect(Screen.width / 2f - lw / 2f, y + unit * 1.35f, lw, 2f), accent);
     }
 
     void Fill(Rect r, Color c)
