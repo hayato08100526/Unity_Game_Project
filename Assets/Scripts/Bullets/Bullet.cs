@@ -51,7 +51,7 @@ public class Bullet : MonoBehaviour
             Vector2 knockback = (dir + Vector2.up * 0.5f).normalized * knockbackForce;
 
             // ƒIƒ“ƒ‰ƒCƒ“‚Å‚ÍHost‚Ì‰æ–Ê‚Ì’e‚¾‚¯‚ª—LŒø(HealthSystem‘¤‚Å”»’è)
-            target.TakeDamage(damage, knockback, transform.position);
+            target.TakeDamageFrom(owner, damage, knockback, transform.position);
             Destroy(gameObject);
             return;
         }

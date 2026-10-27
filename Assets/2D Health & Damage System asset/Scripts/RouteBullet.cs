@@ -106,7 +106,7 @@ public class RouteBullet : MonoBehaviour
         if (owner != null && target.transform == owner) return;
 
         Vector2 knockback = (lastDir + Vector2.up * 0.5f).normalized * knockbackForce;
-        target.TakeDamage(damage, knockback, transform.position);
+        target.TakeDamageFrom(owner, damage, knockback, transform.position);
         Destroy(gameObject);
     }
 }

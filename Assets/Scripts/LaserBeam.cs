@@ -42,7 +42,7 @@ public class LaserBeam : MonoBehaviour
             if (target != null && (owner == null || target.transform != owner))
             {
                 Vector2 kb = (dir + Vector2.up * 0.4f).normalized * knockbackForce;
-                target.TakeDamage(damage, kb, h.point);
+                target.TakeDamageFrom(owner, damage, kb, h.point);
             }
             break;   // è∞ÅEï«ÅEëäéËÇÃÇ«ÇÍÇ©Ç≈é~Ç‹ÇÈ
         }

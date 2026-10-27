@@ -171,6 +171,35 @@ public class HealthSystem : NetworkBehaviour
 
     // ===== ダメージ =====
 
+    // 弾から呼ばれる(撃った人つき)
+    // オンラインでは「撃った本人の画面」で当たったかどうかを決めて、ホストに知らせる
+    // (自分の画面で当たったのに、ラグで当たらなかったことにされる、をなくす)
+    public void TakeDamageFrom(Transform shooter, int damage, Vector2 knockback, Vector2 hitPoint)
+    {
+        if (!IsOnline)
+        {
+            TakeDamage(damage, knockback, hitPoint);
+            return;
+        }
+
+        NetworkObject src = shooter != null ? shooter.GetComponentInParent<NetworkObject>() : null;
+        if (src == null || !src.IsSpawned)
+        {
+            TakeDamage(damage, knockback, hitPoint);   // 撃った人が分からないときは、今までどおりホストが決める
+            return;
+        }
+        if (!src.IsOwner) return;                      // 相手の画面に出ている弾は、見た目だけ
+
+        if (IsServer) TakeDamage(damage, knockback, hitPoint);
+        else HitRequestRpc(Mathf.Clamp(damage, 0, 100), knockback, hitPoint);
+    }
+
+    [Rpc(SendTo.Server)]
+    private void HitRequestRpc(int damage, Vector2 knockback, Vector2 hitPoint)
+    {
+        TakeDamage(damage, knockback, hitPoint);
+    }
+
     // 当たった位置つき(弾やグレネードから呼ばれる)。位置で部位を決める
     public void TakeDamage(int damage, Vector2 knockback, Vector2 hitPoint)
     {
@@ -318,7 +347,7 @@ public class HealthSystem : NetworkBehaviour
     // ダメージなしで吹き飛ばすだけ(グレネードの爆風で自分が飛ぶとき)
     public void Push(Vector2 force)
     {
-        if (!IsOnline) ApplyKnockback(force);
+        if (!IsOnline || IsOwner) ApplyKnockback(force);   // オンラインでは本人の画面で飛ぶ
     }
 
     // ===== CPU 対戦(MatchManager)から呼ばれる =====
