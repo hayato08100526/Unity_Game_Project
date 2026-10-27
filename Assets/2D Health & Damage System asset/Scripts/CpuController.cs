@@ -583,7 +583,8 @@ public class CpuController : MonoBehaviour
         {
             Collider2D c = nearby[i];
             if (c == null) continue;
-            bool isBullet = c.GetComponent<Bullet>() != null || c.GetComponent<RouteBullet>() != null || c.GetComponent<GrenadeBullet>() != null;
+            bool isBullet = c.GetComponent<Bullet>() != null || c.GetComponent<RouteBullet>() != null || c.GetComponent<GrenadeBullet>() != null
+                         || c.GetComponent<BoundBullet>() != null || c.GetComponent<TrackingBullet>() != null;
             if (!isBullet) continue;
 
             Rigidbody2D brb = c.attachedRigidbody;

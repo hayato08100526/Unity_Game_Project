@@ -28,23 +28,42 @@ public class LaserBeam : MonoBehaviour
         Vector2 dir = transform.right;
         end = start + dir * maxLength;
 
-        // 光線の先:最初にぶつかったもの(撃った本人と、すり抜け足場は無視)
+        // ① まず、光線を止める床・壁までの距離を調べる(ロボット・撃った本人・すり抜け足場・トリガーは無視)
+        float stop = maxLength;
         RaycastHit2D[] hits = Physics2D.RaycastAll(start, dir, maxLength);
-        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
         foreach (RaycastHit2D h in hits)
         {
             if (h.collider == null || h.collider.isTrigger) continue;
             if (owner != null && h.collider.transform.IsChildOf(owner)) continue;
+            if (h.collider.GetComponentInParent<HealthSystem>() != null) continue;
             if (h.collider.GetComponent<PlatformEffector2D>() != null) continue;   // 一方通行の足場は通り抜ける
+            if (h.distance < stop) stop = h.distance;
+        }
 
-            end = h.point;
-            HealthSystem target = h.collider.GetComponentInParent<HealthSystem>();
-            if (target != null && (owner == null || target.transform != owner))
+        // ② その手前にいるロボットを、当たり判定の箱と光線で直接調べる
+        //    (レイヤーや物理の設定に関係なく、見た目どおりに当たる)
+        HealthSystem victim = null;
+        float victimDist = stop;
+        Ray2DHelper ray = new Ray2DHelper(start, dir);
+        foreach (HealthSystem hs in FindObjectsByType<HealthSystem>(FindObjectsSortMode.None))
+        {
+            if (hs == null || hs.currentHealth <= 0) continue;
+            if (owner != null && hs.transform == owner) continue;
+            Collider2D col = hs.GetComponent<Collider2D>();
+            Bounds b = col != null ? col.bounds : new Bounds(hs.transform.position, new Vector3(0.8f, 1.6f, 0f));
+            b.Expand(0.15f);   // 光線の太さの分だけ少し広げる
+            if (ray.Hits(b, out float d) && d < victimDist)
             {
-                Vector2 kb = (dir + Vector2.up * 0.4f).normalized * knockbackForce;
-                target.TakeDamageFrom(owner, damage, kb, h.point);
+                victimDist = d;
+                victim = hs;
             }
-            break;   // 床・壁・相手のどれかで止まる
+        }
+
+        end = start + dir * (victim != null ? victimDist : stop);
+        if (victim != null)
+        {
+            Vector2 kb = (dir + Vector2.up * 0.4f).normalized * knockbackForce;
+            victim.TakeDamageFrom(owner, damage, kb, end);
         }
 
         glow = MakeLine("Glow", 0.5f, new Color(color.r, color.g, color.b, 0.35f), 29);
@@ -84,5 +103,35 @@ public class LaserBeam : MonoBehaviour
             glow.startColor = glow.endColor = new Color(g.r, g.g, g.b, 0.35f * (1f - u));
         }
         if (age >= fadeTime) Destroy(gameObject);
+    }
+}
+
+// 2D の光線と箱が交わるか(交わるなら、光線の出発点からの距離を返す)
+public struct Ray2DHelper
+{
+    private readonly Vector2 o, d;
+    public Ray2DHelper(Vector2 origin, Vector2 dir) { o = origin; d = dir.normalized; }
+
+    public bool Hits(Bounds b, out float dist)
+    {
+        dist = 0f;
+        float tmin = 0f, tmax = float.MaxValue;
+        for (int axis = 0; axis < 2; axis++)
+        {
+            float oo = axis == 0 ? o.x : o.y, dd = axis == 0 ? d.x : d.y;
+            float mn = axis == 0 ? b.min.x : b.min.y, mx = axis == 0 ? b.max.x : b.max.y;
+            if (Mathf.Abs(dd) < 1e-6f)
+            {
+                if (oo < mn || oo > mx) return false;
+                continue;
+            }
+            float t1 = (mn - oo) / dd, t2 = (mx - oo) / dd;
+            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
+            tmin = Mathf.Max(tmin, t1);
+            tmax = Mathf.Min(tmax, t2);
+            if (tmin > tmax) return false;
+        }
+        dist = tmin;
+        return true;
     }
 }
