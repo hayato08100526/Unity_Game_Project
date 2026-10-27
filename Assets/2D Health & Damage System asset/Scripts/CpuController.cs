@@ -433,6 +433,19 @@ public class CpuController : MonoBehaviour
         return -1;
     }
 
+    // ===== ジャンプの安全装置 =====
+    [Tooltip("この高さより上では、CPU は自分からジャンプしない(上へ飛び続けて場外に出ないように)")]
+    public float ceilingY = 9f;
+
+    // CPU の入力を渡す。空中では、わざとのジャンプ(復帰)以外は跳ばない
+    // (空中で跳ぶと壁キック・空中ジャンプになって、上へ上へと登り続けてしまうため)
+    void SendInput(Vector2 me, float mv, bool jp, bool allowAir = false)
+    {
+        if (jp && !pc.IsGrounded && !allowAir) jp = false;
+        if (jp && me.y > ceilingY) jp = false;
+        pc.SetCpuInput(mv, jp);
+    }
+
     // ===== 落ちない =====
     private float crossingUntil = -10f;   // 穴を飛び越えている最中(このあいだは「床がない」で止まらない)
     private bool dashedThisAir;
@@ -496,8 +509,8 @@ public class CpuController : MonoBehaviour
         float dx = safeX - me.x;
         move = Mathf.Abs(dx) > 0.3f ? Mathf.Sign(dx) : 0f;
 
-        // 落ち始めたら空中ジャンプ(上がっている途中では使わない)
-        bool jump = rb != null && rb.linearVelocity.y < -1f;
+        // 落ち始めたら空中ジャンプ(上がっている途中・高すぎるところでは使わない)
+        bool jump = rb != null && rb.linearVelocity.y < -1f && me.y < ceilingY;
         pc.SetCpuInput(move, jump);
 
         // 遠いときはダッシュで一気に戻る(空中で 1 回だけ)
@@ -629,7 +642,7 @@ public class CpuController : MonoBehaviour
         {
             move = (me.x < (gapLeft + gapRight) / 2f) ? -1f : 1f;
             if (rb != null && rb.linearVelocity.y < 0f) jump = true;
-            pc.SetCpuInput(move, jump);
+            SendInput(me, move, jump, true);   // 穴からの復帰だけは、空中でも跳ぶ
             return;
         }
 
@@ -713,7 +726,7 @@ public class CpuController : MonoBehaviour
                 Vector2 ip = want.transform.position;
                 move = Mathf.Abs(ip.x - me.x) > 0.3f ? Mathf.Sign(ip.x - me.x) : 0f;
                 if (ip.y > me.y + 1.2f && pc.IsGrounded) jump = true;
-                pc.SetCpuInput(move, jump);
+                SendInput(me, move, jump);
                 return;
             }
 
@@ -735,6 +748,6 @@ public class CpuController : MonoBehaviour
                 move = 0f;
         }
 
-        pc.SetCpuInput(move, jump);
+        SendInput(me, move, jump);
     }
 }
