@@ -35,6 +35,45 @@ public class PlayerController : NetworkBehaviour
     public float dashTime = 0.2f;
     private bool isDashing = false;
 
+    [Header("手ざわり(ジャンプ)")]
+    [Tooltip("床から落ちたあと、この時間(秒)ならまだジャンプできる")]
+    public float coyoteTime = 0.1f;
+    [Tooltip("着地の少し前にジャンプを押しても、着地した瞬間に跳ぶ(秒)")]
+    public float jumpBufferTime = 0.12f;
+    [Tooltip("ジャンプボタンを早く離すと、上昇がこの割合まで弱まる(小ジャンプ)")]
+    [Range(0.1f, 1f)] public float jumpCutMultiplier = 0.5f;
+    [Tooltip("落ちるときの重力の倍率(大きいほど、ふわっとせずにストンと落ちる)")]
+    public float fallGravityMultiplier = 1.7f;
+    [Tooltip("落ちる速さの上限")]
+    public float maxFallSpeed = 18f;
+
+    [Header("手ざわり(移動)")]
+    [Tooltip("地面で動き出すときの加速")]
+    public float groundAcceleration = 90f;
+    [Tooltip("地面で止まるときの減速")]
+    public float groundDeceleration = 70f;
+    [Tooltip("空中での加速(小さいほど、空中で向きを変えにくい)")]
+    public float airAcceleration = 45f;
+    [Tooltip("撃たれて吹き飛んでいる間、操作が効きにくくなる時間(秒)")]
+    public float knockbackControlTime = 0.25f;
+    [Tooltip("ダッシュのあと、次のダッシュまで待つ時間(秒)")]
+    public float dashCooldown = 0.35f;
+
+    private float lastGroundedTime = -10f;
+    private float jumpBufferedUntil = -10f;
+    private bool jumpedSinceGrounded;
+    private bool jumpRising;          // 自分のジャンプで上がっている途中か(小ジャンプの判定用)
+    private float knockbackUntil = -10f;
+    private float nextDashTime;
+    private float baseGravity = 1f;
+
+    // HealthSystem から呼ばれる:撃たれて吹き飛んだ
+    public void NotifyKnockback()
+    {
+        knockbackUntil = Time.time + knockbackControlTime;
+        jumpRising = false;
+    }
+
     [Header("状態確認")]
     public PlayerState currentState = PlayerState.Idle;
 
@@ -68,6 +107,7 @@ public class PlayerController : NetworkBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         health = GetComponent<HealthSystem>();
+        baseGravity = rb.gravityScale;
 
         // 足元に「上向きの面」が接しているかで接地を判定する
         groundFilter = new ContactFilter2D();
@@ -94,6 +134,14 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // CPU がダッシュするとき(CpuController から呼ばれる)
+    public void CpuDash()
+    {
+        if (!isCpu || isDashing || Mathf.Abs(cpuMove) < 0.1f) return;
+        moveInput = cpuMove;
+        StartCoroutine(Dash());
+    }
+
     // CPU から毎フレーム呼ばれる
     public void SetCpuInput(float move, bool jump)
     {
@@ -109,11 +157,34 @@ public class PlayerController : NetworkBehaviour
         if (isDashing) return;
 
         isGrounded = rb.IsTouching(groundFilter);
-        if (isGrounded && rb.linearVelocity.y <= 0.1f) airJumpsLeft = maxAirJumps;
+        if (isGrounded && rb.linearVelocity.y <= 0.1f)
+        {
+            airJumpsLeft = maxAirJumps;
+            lastGroundedTime = Time.time;
+            jumpedSinceGrounded = false;
+        }
         isTouchingWall = wallCheck != null &&
                          Physics2D.OverlapCircle(wallCheck.position, 0.2f, wallLayer);
 
         GetPlayerInput();
+
+        // 着地の少し前に押したジャンプを、着地した瞬間に出す
+        if (Time.time < jumpBufferedUntil && CanGroundJump())
+        {
+            jumpBufferedUntil = -10f;
+            Jump();
+        }
+
+        // 上がっている途中でジャンプを離したら、上昇を弱める(小ジャンプ)
+        if (jumpRising)
+        {
+            if (rb.linearVelocity.y <= 0f) jumpRising = false;
+            else if (!JumpHeld())
+            {
+                rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * jumpCutMultiplier);
+                jumpRising = false;
+            }
+        }
 
         UpdateState();
     }
@@ -175,16 +246,32 @@ public class PlayerController : NetworkBehaviour
         }
     }
 
+    // ジャンプボタンを押し続けているか(CPU はいつも押しっぱなし扱い = 大ジャンプ)
+    bool JumpHeld()
+    {
+        if (isCpu) return true;
+        if (!isSoloMode && !IsOnline && playerID == 2)
+            return Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.Joystick2Button0);
+        return Input.GetButton("Jump") || Input.GetKey(KeyCode.JoystickButton0);
+    }
+
+    // 地面にいる(か、落ちてすぐ)で、まだその地面からジャンプしていない
+    bool CanGroundJump()
+    {
+        return !jumpedSinceGrounded && (isGrounded || Time.time - lastGroundedTime <= coyoteTime);
+    }
+
     void HandleJump()
     {
-        // 地面にいるときは通常ジャンプ、空中で壁に触れていれば壁蹴り、それ以外は空中ジャンプ
-        if (isGrounded) Jump();
+        // 地面(と落ちてすぐ)は通常ジャンプ、空中で壁に触れていれば壁蹴り、それ以外は空中ジャンプ
+        if (CanGroundJump()) Jump();
         else if (isTouchingWall) WallJump();
         else if (airJumpsLeft > 0)
         {
             airJumpsLeft--;
             Jump();
         }
+        else jumpBufferedUntil = Time.time + jumpBufferTime;   // 着地したら跳ぶ
     }
 
     void FixedUpdate()
@@ -192,7 +279,22 @@ public class PlayerController : NetworkBehaviour
         if (!CanControl) return;
 
         if (isDashing) return;
-        rb.linearVelocity = new Vector2(moveInput * moveSpeed * SpeedMul * externalSpeedMul, rb.linearVelocity.y);
+
+        Vector2 v = rb.linearVelocity;
+
+        // 横:いきなり最高速にせず、加速・減速させる(吹き飛び中は操作が効きにくい)
+        float target = moveInput * moveSpeed * SpeedMul * externalSpeedMul;
+        float accel;
+        if (Time.time < knockbackUntil) accel = airAcceleration * 0.25f;
+        else if (isGrounded) accel = Mathf.Abs(target) > 0.01f ? groundAcceleration : groundDeceleration;
+        else accel = airAcceleration;
+        v.x = Mathf.MoveTowards(v.x, target, accel * Time.fixedDeltaTime);
+
+        // 縦:落ちるときは重力を強く(ふわっとしない)、落ちる速さには上限
+        rb.gravityScale = v.y < 0f ? baseGravity * fallGravityMultiplier : baseGravity;
+        if (v.y < -maxFallSpeed) v.y = -maxFallSpeed;
+
+        rb.linearVelocity = v;
     }
 
     void Jump()
@@ -200,23 +302,31 @@ public class PlayerController : NetworkBehaviour
         if (!isCpu) SoundManager.Play("jump", 0.6f, 0.05f);
         rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce * JumpMul);
         isGrounded = false;
+        jumpedSinceGrounded = true;
+        jumpRising = true;
+        jumpBufferedUntil = -10f;
     }
 
     void WallJump()
     {
         float direction = (moveInput != 0) ? -moveInput : (transform.position.x > 0 ? -1 : 1);
         rb.linearVelocity = new Vector2(direction * wallJumpSideForce, wallJumpForce);
+        jumpRising = true;
     }
 
     IEnumerator Dash()
     {
+        if (Time.time < nextDashTime) yield break;   // 連続ダッシュはできない
+        nextDashTime = Time.time + dashTime + dashCooldown;
         isDashing = true;
+        jumpRising = false;
         currentState = PlayerState.Dash;
-        float originalGravity = rb.gravityScale;
         rb.gravityScale = 0f;
-        rb.linearVelocity = new Vector2(moveInput * dashSpeed, 0f);
+        rb.linearVelocity = new Vector2(Mathf.Sign(moveInput) * dashSpeed, 0f);
         yield return new WaitForSeconds(dashTime);
-        rb.gravityScale = originalGravity;
+        rb.gravityScale = baseGravity;
+        // ダッシュの終わりは、少し勢いを残す
+        rb.linearVelocity = new Vector2(Mathf.Sign(moveInput) * moveSpeed * SpeedMul, 0f);
         isDashing = false;
     }
 

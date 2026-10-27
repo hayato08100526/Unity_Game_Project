@@ -64,6 +64,19 @@ public class CpuController : MonoBehaviour
     [Tooltip("自分の HP がこの割合より少ないと、距離をとって慎重に戦う")]
     [Range(0f, 1f)] public float cautiousHpRatio = 0.3f;
 
+    [Tooltip("頭(ダメージ 1.5 倍)をねらう確率")]
+    [Range(0f, 1f)] public float headAimChance = 0.15f;
+    [Tooltip("オン:ダッシュで近づいたり、場外から戻ったりする")]
+    public bool useDash = true;
+    [Tooltip("オン:相手が端にいるとき、ステージの内側に回りこんで外へ押し出す")]
+    public bool pushToEdge = true;
+
+    [Header("落ちない(どの強さでも、いつもオン)")]
+    [Tooltip("進む先のこの距離に床がなければ、そっちへは進まない")]
+    public float groundProbeAhead = 1.1f;
+    [Tooltip("下をこの深さまで調べて、床がなければ「奈落」とみなす")]
+    public float abyssDepth = 14f;
+
     [Header("先手はプレイヤーに譲る")]
     [Tooltip("オン:試合開始のあと、プレイヤーが1発撃つまで CPU は撃たない")]
     public bool waitForPlayerFirstShot = false;
@@ -90,6 +103,7 @@ public class CpuController : MonoBehaviour
     private WeaponSystem targetWeapon;
     private Rigidbody2D targetRb;
     private Vector2 aimPoint;
+    private bool aimHead;
     private bool canSee = true;
     private float blockedTime;
 
@@ -111,80 +125,91 @@ public class CpuController : MonoBehaviour
     // 強さに合わせて、反応・射撃・狙い・動きの数字をまとめて変える
     public void ApplyDifficulty(Difficulty d)
     {
+        // 3段階で共通の「落ちない」しくみはいつもオン。強さで変わるのは反応・狙い・攻め方
         switch (d)
         {
             case Difficulty.Easy:
-                thinkInterval = 0.45f;
-                fireIntervalMin = 1.0f;
-                fireIntervalMax = 1.8f;
-                aimError = 1.4f;
-                randomJumpChance = 0.05f;
-                dodgeChance = 0.15f;
-                smartWeapons = false;
+                thinkInterval = 0.25f;
+                fireIntervalMin = 0.6f;
+                fireIntervalMax = 1.1f;
+                aimError = 0.8f;
+                randomJumpChance = 0.08f;
+                dodgeChance = 0.35f;
+                smartWeapons = true;
+                smartWeaponInterval = 1.5f;
                 preferredDistance = 6f;
-                weaponChangeInterval = 8f;
-                startDelay = 1.5f;
-                shotsPerBurst = 2;
-                restMin = 2.5f;
-                restMax = 3.5f;
-                fireRange = 10f;
-                maxWaitForPlayer = 8f;
-                reactionTime = 1.0f;
-                leadAim = 0f;
+                weaponChangeInterval = 6f;
+                startDelay = 1.2f;
+                shotsPerBurst = 3;
+                restMin = 1.5f;
+                restMax = 2.2f;
+                fireRange = 13f;
+                maxWaitForPlayer = 6f;
+                reactionTime = 0.7f;
+                leadAim = 0.3f;
                 punishOpenings = false;
-                checkLineOfSight = false;
+                checkLineOfSight = true;
                 finisherExtraShots = 0;
                 cautiousHpRatio = 0f;
+                headAimChance = 0f;
+                useDash = false;
+                pushToEdge = false;
                 break;
 
             case Difficulty.Normal:
-                thinkInterval = 0.25f;
-                fireIntervalMin = 0.5f;
-                fireIntervalMax = 1.2f;
-                aimError = 0.6f;
-                randomJumpChance = 0.1f;
-                dodgeChance = 0.45f;
+                thinkInterval = 0.12f;
+                fireIntervalMin = 0.3f;
+                fireIntervalMax = 0.6f;
+                aimError = 0.28f;
+                randomJumpChance = 0.12f;
+                dodgeChance = 0.7f;
                 smartWeapons = true;
-                smartWeaponInterval = 1.2f;
+                smartWeaponInterval = 0.7f;
                 preferredDistance = 5f;
-                weaponChangeInterval = 6f;
-                startDelay = 1f;
-                shotsPerBurst = 3;
-                restMin = 1.5f;
-                restMax = 2.5f;
-                fireRange = 12f;
-                maxWaitForPlayer = 5f;
-                reactionTime = 0.6f;
-                leadAim = 0.5f;
-                punishOpenings = true;
-                checkLineOfSight = true;
-                finisherExtraShots = 1;
-                cautiousHpRatio = 0.25f;
-                break;
-
-            case Difficulty.Hard:
-                thinkInterval = 0.08f;
-                fireIntervalMin = 0.25f;
-                fireIntervalMax = 0.5f;
-                aimError = 0.12f;
-                randomJumpChance = 0.15f;
-                dodgeChance = 0.92f;
-                smartWeapons = true;
-                smartWeaponInterval = 0.4f;
-                preferredDistance = 4.5f;
-                weaponChangeInterval = 4f;
-                startDelay = 0.5f;
+                weaponChangeInterval = 5f;
+                startDelay = 0.7f;
                 shotsPerBurst = 4;
-                restMin = 0.5f;
-                restMax = 1.0f;
+                restMin = 0.7f;
+                restMax = 1.2f;
                 fireRange = 16f;
-                maxWaitForPlayer = 3f;
-                reactionTime = 0.25f;
-                leadAim = 1f;
+                maxWaitForPlayer = 4f;
+                reactionTime = 0.4f;
+                leadAim = 0.8f;
                 punishOpenings = true;
                 checkLineOfSight = true;
                 finisherExtraShots = 2;
+                cautiousHpRatio = 0.25f;
+                headAimChance = 0.15f;
+                useDash = true;
+                pushToEdge = true;
+                break;
+
+            case Difficulty.Hard:
+                thinkInterval = 0.05f;
+                fireIntervalMin = 0.18f;
+                fireIntervalMax = 0.35f;
+                aimError = 0.05f;
+                randomJumpChance = 0.15f;
+                dodgeChance = 0.96f;
+                smartWeapons = true;
+                smartWeaponInterval = 0.3f;
+                preferredDistance = 4.5f;
+                weaponChangeInterval = 4f;
+                startDelay = 0.35f;
+                shotsPerBurst = 6;
+                restMin = 0.25f;
+                restMax = 0.55f;
+                fireRange = 19f;
+                maxWaitForPlayer = 2f;
+                reactionTime = 0.15f;
+                leadAim = 1f;
+                punishOpenings = true;
+                checkLineOfSight = true;
+                finisherExtraShots = 3;
                 cautiousHpRatio = 0.3f;
+                headAimChance = 0.4f;
+                useDash = true;
+                pushToEdge = true;
                 break;
         }
     }
@@ -281,12 +306,27 @@ public class CpuController : MonoBehaviour
         canSee = !checkLineOfSight || LineOfSight(me, aimPoint);
         blockedTime = canSee ? 0f : blockedTime + Time.deltaTime;
 
-        // 動きは thinkInterval ごとに考え直す
-        thinkTimer -= Time.deltaTime;
-        if (thinkTimer <= 0f)
+        // ===== 落ちない(毎フレーム、考える間隔とは関係なく) =====
+        if (Recover(me))
         {
-            thinkTimer = thinkInterval;
-            Think(me, tp);
+            thinkTimer = 0f;   // 戻れたら、すぐ考え直す
+        }
+        else
+        {
+            // 動きは thinkInterval ごとに考え直す
+            thinkTimer -= Time.deltaTime;
+            if (thinkTimer <= 0f)
+            {
+                thinkTimer = thinkInterval;
+                Think(me, tp);
+            }
+
+            // 地面を歩いていて、進む先に床がない(奈落)なら止まる
+            if (pc.IsGrounded && Mathf.Abs(move) > 0.01f && Time.time > crossingUntil && !SafeAhead(me, Mathf.Sign(move), groundProbeAhead))
+            {
+                move = 0f;
+                pc.SetCpuInput(0f, false);
+            }
         }
 
         // 今の武器が熱くなっていたら、冷えている武器に持ち替える
@@ -329,6 +369,7 @@ public class CpuController : MonoBehaviour
             {
                 weapon.CpuShootAt(aimPoint);
                 aimOffset = Random.insideUnitCircle * aimError;
+                aimHead = Random.value < headAimChance;   // 次の弾は頭をねらうか
                 shotsLeft--;
             }
 
@@ -392,11 +433,87 @@ public class CpuController : MonoBehaviour
         return -1;
     }
 
+    // ===== 落ちない =====
+    private float crossingUntil = -10f;   // 穴を飛び越えている最中(このあいだは「床がない」で止まらない)
+    private bool dashedThisAir;
+
+    // (x, fromY) から真下に床があるか。あればその高さを返す(自分・ロボット・アイテム・トリガーは無視)
+    bool GroundBelow(float x, float fromY, out float groundY)
+    {
+        groundY = 0f;
+        RaycastHit2D[] hits = Physics2D.RaycastAll(new Vector2(x, fromY), Vector2.down, abyssDepth);
+        float best = float.MaxValue;
+        bool found = false;
+        foreach (RaycastHit2D h in hits)
+        {
+            if (h.collider == null || h.collider.isTrigger) continue;
+            if (h.collider.transform.IsChildOf(transform)) continue;
+            if (h.collider.GetComponentInParent<HealthSystem>() != null) continue;
+            if (h.distance < best) { best = h.distance; groundY = h.point.y; found = true; }
+        }
+        return found;
+    }
+
+    // dir の方向へ ahead だけ進んだところに床があるか
+    bool SafeAhead(Vector2 me, float dir, float ahead)
+    {
+        Collider2D col = GetComponent<Collider2D>();
+        float feet = col != null ? col.bounds.min.y : me.y - 0.5f;
+        float halfW = col != null ? col.bounds.extents.x : 0.4f;
+        return GroundBelow(me.x + dir * (halfW + ahead), feet + 0.3f, out _);
+    }
+
+    // 戻れる床がある、いちばん近い x
+    float FindSafeX(Vector2 me)
+    {
+        for (float d = 0.5f; d <= 16f; d += 0.5f)
+        {
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+            {
+                float x = me.x + sgn * d;
+                if (GroundBelow(x, me.y + 3f, out float gy) && gy <= me.y + 3f) return x;
+            }
+        }
+        // 低すぎて見つからないときは、高いところから探す
+        for (float d = 0f; d <= 16f; d += 0.5f)
+            for (int sgn = -1; sgn <= 1; sgn += 2)
+                if (GroundBelow(me.x + sgn * d, 12f, out _)) return me.x + sgn * d;
+        return 0f;
+    }
+
+    // 空中で、真下に床がない → 床のある方へ戻る(空中ジャンプ・ダッシュも使う)。戻っている間は true
+    bool Recover(Vector2 me)
+    {
+        if (pc.IsGrounded)
+        {
+            dashedThisAir = false;
+            return false;
+        }
+        if (Time.time < crossingUntil) return false;          // 穴を飛び越えている途中
+        if (GroundBelow(me.x, me.y, out _)) return false;     // 下に床がある = 大丈夫
+
+        float safeX = FindSafeX(me);
+        float dx = safeX - me.x;
+        move = Mathf.Abs(dx) > 0.3f ? Mathf.Sign(dx) : 0f;
+
+        // 落ち始めたら空中ジャンプ(上がっている途中では使わない)
+        bool jump = rb != null && rb.linearVelocity.y < -1f;
+        pc.SetCpuInput(move, jump);
+
+        // 遠いときはダッシュで一気に戻る(空中で 1 回だけ)
+        if (useDash && !dashedThisAir && Mathf.Abs(dx) > 2.5f && move != 0f)
+        {
+            dashedThisAir = true;
+            pc.CpuDash();
+        }
+        return true;
+    }
+
     // ===== 先読み・見えるか・相手のすき =====
     // 相手が今の速さで動き続けたら、弾が届くころにどこにいるか
     Vector2 PredictTarget(Vector2 me, Vector2 tp)
     {
-        Vector2 aim = tp + Vector2.up * 0.5f;
+        Vector2 aim = tp + Vector2.up * (aimHead ? 0.95f : 0.5f);
         if (leadAim <= 0f || targetRb == null || weapon == null) return aim;
         string n = weapon.GetWeaponName(weapon.CurrentIndex);
         if (n != null && n.ToUpper().StartsWith("LASER")) return aim;   // レーザーは一瞬で届く
@@ -528,13 +645,26 @@ public class CpuController : MonoBehaviour
             if (TargetOpen() || TargetLow()) wantDist = Mathf.Max(2.5f, preferredDistance - 2f);
             else if (Cautious()) wantDist = preferredDistance + 3f;
 
-            if (dist > wantDist + distanceTolerance)
+            // 立ちたい位置:ふだんは今いる側。相手が端にいるときは、内側(ステージの真ん中側)に回りこむ
+            float side = me.x >= tp.x ? 1f : -1f;
+            bool targetNearEdge = tp.x < stageLeft + 4f || tp.x > stageRight - 4f;
+            if (pushToEdge && targetNearEdge && !Cautious())
             {
-                move = Mathf.Sign(dx);          // 遠いので近づく
+                side = tp.x < (stageLeft + stageRight) / 2f ? 1f : -1f;
+                if (side != (me.x >= tp.x ? 1f : -1f) && dist < 2.5f && pc.IsGrounded) jump = true;   // 相手を飛び越えて回りこむ
             }
-            else if (dist < wantDist - distanceTolerance)
+            float wantX = Mathf.Clamp(tp.x + side * wantDist, stageLeft + edgeMargin, stageRight - edgeMargin);
+            float toWant = wantX - me.x;
+
+            if (Mathf.Abs(toWant) > distanceTolerance)
             {
-                move = -Mathf.Sign(dx);         // 近すぎるので離れる
+                move = Mathf.Sign(toWant);
+                // 遠いときはダッシュで一気に近づく(進む先に床があるときだけ)
+                if (useDash && pc.IsGrounded && Mathf.Abs(toWant) > 5f && Random.value < 0.2f && SafeAhead(me, move, 4.5f))
+                {
+                    pc.SetCpuInput(move, false);
+                    pc.CpuDash();
+                }
             }
             else
             {
@@ -561,6 +691,7 @@ public class CpuController : MonoBehaviour
                 {
                     move = Mathf.Sign(move);   // 勢いをつけて
                     jump = true;
+                    crossingUntil = Time.time + 0.9f;   // 飛び越えている間は「床がない」で止まらない
                 }
             }
 
@@ -597,6 +728,10 @@ public class CpuController : MonoBehaviour
 
             // ときどきランダムにジャンプして、弾をよける
             if (Random.value < randomJumpChance) jump = true;
+
+            // ジャンプしても落ちないように:進む先に床がなければ、その場で真上に跳ぶ
+            if (jump && pc.IsGrounded && Mathf.Abs(move) > 0.01f && Time.time > crossingUntil && !SafeAhead(me, Mathf.Sign(move), 2.5f))
+                move = 0f;
         }
 
         pc.SetCpuInput(move, jump);

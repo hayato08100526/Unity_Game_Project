@@ -277,12 +277,36 @@ public class RobotJuice : MonoBehaviour
             instance.flashColor = Color.Lerp(Color.white, team, 0.3f);
 
             // スローは CPU 戦だけ(オンラインでは相手とずれるのでやらない)
-            if (MatchManager.Instance != null && !MatchManager.Instance.IsOnlineMode && Time.timeScale >= 0.99f)
+            bool hitStopping = Mathf.Approximately(Time.timeScale, HitStopScale);   // 最後の一撃のヒットストップ中でも OK
+            if (MatchManager.Instance != null && !MatchManager.Instance.IsOnlineMode && (Time.timeScale >= 0.99f || hitStopping))
             {
+                instance.hitStopUntil = -1f;
                 if (instance.slowUntil < 0f) instance.baseFixed = Time.fixedDeltaTime;
                 Time.timeScale = SlowScale;
                 Time.fixedDeltaTime = instance.baseFixed * SlowScale;   // スロー中も動きがカクカクしないように
                 instance.slowUntil = Time.unscaledTime + 0.55f;
+            }
+        }
+
+        // ===== ヒットストップ =====
+        private float hitStopUntil = -1f;
+        private const float HitStopScale = 0.02f;
+
+        public static void HitStop(float seconds)
+        {
+            if (instance == null) return;
+            if (MatchManager.Instance == null || MatchManager.Instance.IsOnlineMode) return;   // オンラインではやらない
+            if (Time.timeScale < 0.99f && !Mathf.Approximately(Time.timeScale, HitStopScale)) return;   // ポーズ中・KO スロー中はやらない
+            Time.timeScale = HitStopScale;
+            instance.hitStopUntil = Mathf.Max(instance.hitStopUntil, Time.unscaledTime + seconds);
+        }
+
+        void LateUpdate()
+        {
+            if (hitStopUntil > 0f && Time.unscaledTime >= hitStopUntil)
+            {
+                hitStopUntil = -1f;
+                if (Mathf.Approximately(Time.timeScale, HitStopScale)) Time.timeScale = 1f;
             }
         }
 

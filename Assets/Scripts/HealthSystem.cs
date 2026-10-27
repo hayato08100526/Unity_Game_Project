@@ -247,6 +247,9 @@ public class HealthSystem : NetworkBehaviour
 
     void HitFeedback(int damage)
     {
+        // ヒットストップ:当たった瞬間、ほんの一瞬だけ時間を止めて「重さ」を出す(CPU 戦だけ)
+        RobotJuice.Manager.HitStop(Mathf.Min(0.035f + damage * 0.0025f, 0.09f));
+
         // 赤く光る
         for (int i = 0; i < renderers.Length; i++)
         {
@@ -390,6 +393,8 @@ public class HealthSystem : NetworkBehaviour
         if (rb == null) return;
         rb.linearVelocity = Vector2.zero;
         rb.AddForce(knockback, ForceMode2D.Impulse);
+        var pc = GetComponent<PlayerController>();
+        if (pc != null) pc.NotifyKnockback();   // しばらく吹き飛びを操作で打ち消せない
     }
 
     // HPが変わったら全員の画面で呼ばれる
